@@ -109,4 +109,46 @@ router.get("/unread/:userId/:userType", async (req, res) => {
   }
 });
 
+// Get user conversations (support/order chat polling compatibility)
+router.get("/user-conversations", async (req, res) => {
+  try {
+    const { userId, userPhone } = req.query;
+    if (!userId && !userPhone) {
+      return res.json([]);
+    }
+    const targetId = String(userId || userPhone);
+    const messages = await storage.getMessages("");
+    const userMessages = messages.filter((m: any) =>
+      m.senderId === targetId || m.receiverId === targetId
+    );
+    res.json(userMessages);
+  } catch (error) {
+    console.error("Error fetching user conversations:", error);
+    res.json([]);
+  }
+});
+
+// Get admin conversations list
+router.get("/admin/conversations", async (_req, res) => {
+  try {
+    const messages = await storage.getMessages("");
+    res.json(messages);
+  } catch (error) {
+    console.error("Error fetching admin conversations:", error);
+    res.json([]);
+  }
+});
+
+// Get admin order chat monitoring
+router.get("/admin/order-monitoring", async (_req, res) => {
+  try {
+    const messages = await storage.getMessages("");
+    const orderMessages = messages.filter((m: any) => !!m.orderId);
+    res.json(orderMessages);
+  } catch (error) {
+    console.error("Error fetching admin order monitoring:", error);
+    res.json([]);
+  }
+});
+
 export default router;

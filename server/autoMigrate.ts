@@ -2,6 +2,9 @@ import postgres from "postgres";
 
 function getSslOption(url: string) {
   if (!url) return undefined;
+  if (url.includes("sslmode=disable") || url.includes("ssl=false")) {
+    return false;
+  }
   const isCloudProvider = url.includes("render.com") || url.includes("dpg-") || url.includes("neon.tech") || url.includes("supabase") || url.includes("aws");
   const hasSslMode = url.includes("sslmode=") || url.includes("ssl=");
   if (isCloudProvider || hasSslMode || process.env.NODE_ENV === "production" || process.env.DB_SSL === "true") {
@@ -22,13 +25,24 @@ export async function ensureTablesExist() {
   let sql: any;
   try {
     sql = postgres(databaseUrl, {
-      ssl: ssl || { rejectUnauthorized: false },
+      ssl: ssl !== undefined ? ssl : { rejectUnauthorized: false },
       max: 1,
       connect_timeout: 5,
       idle_timeout: 5,
     });
   } catch (initErr: any) {
     console.warn("ℹ️ PostgreSQL database client init notice:", initErr?.message || initErr);
+    return;
+  }
+
+  try {
+    await Promise.race([
+      sql`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection probe timeout")), 4000))
+    ]);
+  } catch (probeErr: any) {
+    console.warn("⚠️ Database not reachable during auto-migration check, skipping tables creation:", probeErr?.message || probeErr);
+    try { await sql.end(); } catch (_) {}
     return;
   }
 

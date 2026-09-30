@@ -71,9 +71,9 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 5000,
-    refetchIntervalInBackground: true,
-    staleTime: 3000,
+    refetchInterval: 20000,
+    refetchIntervalInBackground: false,
+    staleTime: 5000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });
@@ -88,9 +88,9 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 5000,
-    refetchIntervalInBackground: true,
-    staleTime: 3000,
+    refetchInterval: 20000,
+    refetchIntervalInBackground: false,
+    staleTime: 5000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });

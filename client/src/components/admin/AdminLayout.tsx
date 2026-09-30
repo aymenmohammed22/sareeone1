@@ -442,22 +442,22 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
   const { data: ordersData } = useQuery<any>({
     queryKey: ['/api/admin/orders'],
-    refetchInterval: 15000,
+    refetchInterval: 45000,
   });
 
   const { data: wasalniData = [] } = useQuery<any[]>({
     queryKey: ['/api/wasalni'],
-    refetchInterval: 15000,
+    refetchInterval: 45000,
   });
 
   const { data: adminNotifications = [] } = useQuery<any[]>({
     queryKey: ['/api/admin/notifications?recipientType=admin'],
-    refetchInterval: 15000,
+    refetchInterval: 45000,
   });
 
   const { data: pendingWithdrawals = [] } = useQuery<any[]>({
     queryKey: ['/api/admin/withdrawals/pending'],
-    refetchInterval: 15000,
+    refetchInterval: 45000,
   });
 
   const filteredAdminNotifs = useMemo(() => {

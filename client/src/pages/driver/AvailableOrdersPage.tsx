@@ -90,9 +90,9 @@ export default function AvailableOrdersPage({ driverId, onSelectOrder, onOrderAc
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 4000,
-    refetchIntervalInBackground: true,
-    staleTime: 3000,
+    refetchInterval: 20000,
+    refetchIntervalInBackground: false,
+    staleTime: 5000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });
@@ -107,9 +107,9 @@ export default function AvailableOrdersPage({ driverId, onSelectOrder, onOrderAc
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 4000,
-    refetchIntervalInBackground: true,
-    staleTime: 3000,
+    refetchInterval: 20000,
+    refetchIntervalInBackground: false,
+    staleTime: 5000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });
