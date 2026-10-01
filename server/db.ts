@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { 
   adminUsers, categories, restaurantSections, restaurants, 
   menuItems, users, customers, userAddresses, orders, specialOffers, 
-  notifications, ratings, systemSettingsTable as systemSettings, drivers, orderTracking,
+  notifications, notificationReplies, ratings, systemSettingsTable as systemSettings, drivers, orderTracking,
   cart, favorites, employees, attendance, leaveRequests, driverEarningsTable,
   driverBalances, driverTransactions, driverCommissions, driverWithdrawals,
   deliveryFeeSettings, deliveryZones, financialReports,
@@ -23,6 +23,7 @@ import {
   type Order, type InsertOrder,
   type SpecialOffer, type InsertSpecialOffer,
   type Notification, type InsertNotification,
+  type NotificationReply, type InsertNotificationReply,
   type Rating, type InsertRating,
   type SystemSettings, type InsertSystemSettings,
   type Driver, type InsertDriver,
@@ -71,6 +72,16 @@ let sqlClient: ReturnType<typeof postgres> | null = null;
 let uiSettingsMemoryCache: { data: any[]; timestamp: number } | null = null;
 let categoriesMemoryCache: { data: any[]; timestamp: number } | null = null;
 
+export function isOutsideRenderWithInternalUrl(url?: string): boolean {
+  const targetUrl = url || process.env.DATABASE_URL;
+  if (!targetUrl) return false;
+  const isInternal = targetUrl.includes("dpg-") && !targetUrl.includes(".render.com");
+  if (!isInternal) return false;
+  // If running on Render, the internal URL is valid and expected!
+  const isRunningOnRender = process.env.RENDER === "true" || !!process.env.RENDER_SERVICE_ID || !!process.env.RENDER_INSTANCE_ID;
+  return !isRunningOnRender;
+}
+
 export function getDb() {
   if (!internalDb) {
     // Use DATABASE_URL from environment variables
@@ -86,12 +97,33 @@ export function getDb() {
           return () => createDummyQuery();
         }
       });
-      return new Proxy({}, {
+      internalDb = new Proxy({}, {
         get(_target, prop) {
           if (prop === 'then') return undefined;
           return () => createDummyQuery();
         }
       }) as unknown as ReturnType<typeof drizzle>;
+      return internalDb;
+    }
+    
+    if (isOutsideRenderWithInternalUrl(databaseUrl)) {
+      console.warn("ℹ️ Running outside Render with a Render Internal Database URL (dpg-...). Using memory storage for preview; PostgreSQL will be used automatically when running on Render.");
+      
+      const createDummyQuery = (): any => new Proxy(Promise.resolve([]), {
+        get(target, prop) {
+          if (prop === 'then') return target.then.bind(target);
+          if (prop === 'catch') return target.catch.bind(target);
+          if (prop === 'finally') return target.finally.bind(target);
+          return () => createDummyQuery();
+        }
+      });
+      internalDb = new Proxy({}, {
+        get(_target, prop) {
+          if (prop === 'then') return undefined;
+          return () => createDummyQuery();
+        }
+      }) as unknown as ReturnType<typeof drizzle>;
+      return internalDb;
     }
     
     console.log("🗺️ Using PostgreSQL database connection...");  // Debug log
@@ -117,6 +149,12 @@ export function getDb() {
           console.log("✅ Render PostgreSQL database connection verified successfully at", new Date().toLocaleTimeString());
         }
       } catch (err: any) {
+        if (err?.message?.includes("ENOTFOUND") || err?.message?.includes("EAI_AGAIN")) {
+          console.error("❌ CRITICAL: Database hostname could not be resolved.");
+          if (databaseUrl?.includes("dpg-") && !databaseUrl?.includes(".render.com")) {
+            console.error("💡 HINT: You are using an internal Render URL (dpg-...). Please switch to the EXTERNAL URL in your Settings.");
+          }
+        }
         console.warn("ℹ️ Database connection notice (using memory storage fallback):", err?.message || err);
       }
     };
@@ -459,10 +497,12 @@ export class DatabaseStorage {
 
   async updateRestaurant(id: string, restaurant: Partial<InsertRestaurant>): Promise<Restaurant | undefined> {
     const cleanData: any = { ...restaurant, updatedAt: new Date() };
-    if (cleanData.categoryId === '' || cleanData.categoryId === 'null' || cleanData.categoryId === 'undefined') {
+    if (!cleanData.categoryId || cleanData.categoryId === '' || cleanData.categoryId === 'null' || cleanData.categoryId === 'undefined') {
+      cleanData.categoryId = null;
+    } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(cleanData.categoryId))) {
       cleanData.categoryId = null;
     }
-    if (cleanData.temporaryCloseReason === '' || cleanData.temporaryCloseReason === 'null') {
+    if (cleanData.temporaryCloseReason === '' || cleanData.temporaryCloseReason === 'null' || cleanData.isTemporarilyClosed === false) {
       cleanData.temporaryCloseReason = null;
     }
     const [updated] = await this.db.update(restaurants).set(cleanData).where(eq(restaurants.id, id)).returning();
@@ -644,7 +684,7 @@ export class DatabaseStorage {
 
   async getOrder(id: string): Promise<any | undefined> {
     try {
-      const [order] = await this.db.select({
+      let [order] = await this.db.select({
         id: orders.id,
         orderNumber: orders.orderNumber,
         customerName: orders.customerName,
@@ -685,6 +725,14 @@ export class DatabaseStorage {
       .leftJoin(drivers, eq(orders.driverId, drivers.id))
       .where(eq(orders.id, id));
       
+      if (!order && id) {
+        const allOrd = await this.getOrders();
+        const found = allOrd.find((o: any) => o.orderNumber === id || o.id === id);
+        if (found) {
+          return found;
+        }
+      }
+
       return order;
     } catch (error) {
       console.error('Error fetching order:', error);
@@ -1238,6 +1286,83 @@ async getNotifications(recipientType?: string, recipientId?: string, unread?: bo
     } catch (error) {
       console.error('Error marking notification as read:', error);
       return undefined;
+    }
+  }
+
+  async updateNotificationAllowReplies(id: string, allowReplies: boolean): Promise<Notification | undefined> {
+    try {
+      const [updated] = await this.db.update(notifications)
+        .set({ allowReplies })
+        .where(eq(notifications.id, id))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error('Error updating notification allowReplies:', error);
+      return undefined;
+    }
+  }
+
+  async createNotificationReply(reply: InsertNotificationReply): Promise<NotificationReply> {
+    try {
+      const [newReply] = await this.db.insert(notificationReplies).values(reply).returning();
+
+      // Notify via WebSocket
+      if (global.WS_MANAGER) {
+        global.WS_MANAGER.sendToAdmin('NEW_NOTIFICATION_REPLY', newReply);
+        global.WS_MANAGER.broadcast('NEW_NOTIFICATION_REPLY', newReply);
+      }
+
+      return newReply;
+    } catch (error) {
+      console.error('Error creating notification reply:', error);
+      throw error;
+    }
+  }
+
+  async getNotificationReplies(notificationId?: string): Promise<NotificationReply[]> {
+    try {
+      if (notificationId) {
+        return await this.db.select().from(notificationReplies)
+          .where(eq(notificationReplies.notificationId, notificationId))
+          .orderBy(asc(notificationReplies.createdAt));
+      }
+      return await this.db.select().from(notificationReplies)
+        .orderBy(asc(notificationReplies.createdAt));
+    } catch (error) {
+      console.error('Error fetching notification replies:', error);
+      return [];
+    }
+  }
+
+  async getAllNotificationReplies(): Promise<NotificationReply[]> {
+    try {
+      return await this.db.select().from(notificationReplies)
+        .orderBy(desc(notificationReplies.createdAt));
+    } catch (error) {
+      console.error('Error fetching all notification replies:', error);
+      return [];
+    }
+  }
+
+  async deleteNotificationReply(id: string): Promise<boolean> {
+    try {
+      await this.db.delete(notificationReplies).where(eq(notificationReplies.id, id));
+      return true;
+    } catch (error) {
+      console.error('Error deleting notification reply:', error);
+      return false;
+    }
+  }
+
+  async markNotificationReplyAsRead(id: string): Promise<boolean> {
+    try {
+      await this.db.update(notificationReplies)
+        .set({ isRead: true })
+        .where(eq(notificationReplies.id, id));
+      return true;
+    } catch (error) {
+      console.error('Error marking notification reply as read:', error);
+      return false;
     }
   }
 
@@ -1888,13 +2013,45 @@ async getNotifications(recipientType?: string, recipientId?: string, unread?: bo
     }
   }
 
+  async recalculateRestaurantRating(restaurantId: string): Promise<void> {
+    try {
+      const restRatings = await this.db.select().from(ratings)
+        .where(eq(ratings.restaurantId, restaurantId));
+
+      if (!restRatings || restRatings.length === 0) {
+        await this.db.update(restaurants)
+          .set({ reviewCount: 0 })
+          .where(eq(restaurants.id, restaurantId));
+        return;
+      }
+
+      const approved = restRatings.filter((r: any) => r.isApproved !== false);
+      const targetRatings = approved.length > 0 ? approved : restRatings;
+      const sum = targetRatings.reduce((acc: number, r: any) => acc + (Number(r.rating) || 0), 0);
+      const avg = (sum / targetRatings.length).toFixed(1);
+
+      await this.db.update(restaurants)
+        .set({
+          rating: avg,
+          reviewCount: targetRatings.length,
+          updatedAt: new Date()
+        })
+        .where(eq(restaurants.id, restaurantId));
+    } catch (error) {
+      console.error("Error recalculating restaurant rating in DB:", error);
+    }
+  }
+
   async createRating(rating: InsertRating): Promise<Rating> {
     const [newRating] = await this.db.insert(ratings)
       .values({
         ...rating,
-        isApproved: rating.isApproved ?? false
+        isApproved: rating.isApproved ?? true
       })
       .returning();
+    if (newRating?.restaurantId) {
+      await this.recalculateRestaurantRating(newRating.restaurantId);
+    }
     return newRating;
   }
 
@@ -1903,12 +2060,20 @@ async getNotifications(recipientType?: string, recipientId?: string, unread?: bo
       .set(rating)
       .where(eq(ratings.id, id))
       .returning();
+    if (updated?.restaurantId) {
+      await this.recalculateRestaurantRating(updated.restaurantId);
+    }
     return updated;
   }
 
   async deleteRating(id: string): Promise<boolean> {
+    const [existing] = await this.db.select().from(ratings).where(eq(ratings.id, id));
     const result = await this.db.delete(ratings).where(eq(ratings.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const success = (result.rowCount ?? 0) > 0;
+    if (success && existing?.restaurantId) {
+      await this.recalculateRestaurantRating(existing.restaurantId);
+    }
+    return success;
   }
 
   // Driver Reviews
@@ -2587,18 +2752,180 @@ async getNotifications(recipientType?: string, recipientId?: string, unread?: bo
       .orderBy(asc(messages.createdAt));
   }
 
+  async getAdminChatMessages(userId: string, userType: string): Promise<Message[]> {
+    try {
+      const rawId = String(userId || '').trim();
+      const allMsgs = await this.db.select().from(messages)
+        .where(
+          or(
+            eq(messages.senderId, rawId),
+            eq(messages.receiverId, rawId),
+            eq(messages.receiverType, 'admin'),
+            eq(messages.senderType, 'admin')
+          )
+        )
+        .orderBy(asc(messages.createdAt));
+
+      const cleanId = rawId.replace(/\D/g, '');
+
+      return allMsgs.filter(m => {
+        const sId = String(m.senderId || '').trim();
+        const rId = String(m.receiverId || '').trim();
+        const sClean = sId.replace(/\D/g, '');
+        const rClean = rId.replace(/\D/g, '');
+
+        const isSenderMatch = sId === rawId || (cleanId.length >= 7 && sClean === cleanId) || (cleanId.length >= 7 && sClean.endsWith(cleanId.slice(-7)));
+        const isReceiverMatch = rId === rawId || (cleanId.length >= 7 && rClean === cleanId) || (cleanId.length >= 7 && rClean.endsWith(cleanId.slice(-7)));
+
+        return (
+          (isSenderMatch && (m.receiverType === 'admin' || m.receiverId === 'admin')) ||
+          (isReceiverMatch && (m.senderType === 'admin' || m.senderId === 'admin')) ||
+          (isSenderMatch && userType && m.senderType === userType) ||
+          (isReceiverMatch && userType && m.receiverType === userType)
+        );
+      });
+    } catch (err) {
+      console.error('Error fetching admin chat messages from db:', err);
+      return [];
+    }
+  }
+
+  async getAdminConversations(): Promise<any[]> {
+    try {
+      const allMessages = await this.db.select().from(messages)
+        .orderBy(desc(messages.createdAt));
+      
+      const conversations = new Map<string, any>();
+      allMessages.forEach(msg => {
+        // Only include messages directly involving admin/support
+        const isAdminRelated = msg.senderType === 'admin' || msg.receiverType === 'admin' || msg.receiverId === 'admin';
+        if (!isAdminRelated) return; // Exclude customer-driver chats from admin support inbox
+
+        const otherUserId = msg.senderType === 'admin' ? msg.receiverId : msg.senderId;
+        const otherUserType = msg.senderType === 'admin' ? msg.receiverType : msg.senderType;
+        const key = `${otherUserType}:${otherUserId}`;
+        
+        // Unread strictly for admin: messages addressed to admin that are unread
+        const isUnread = !msg.isRead && (msg.receiverType === 'admin' || msg.receiverId === 'admin');
+
+        if (!conversations.has(key)) {
+          conversations.set(key, {
+            userId: otherUserId,
+            userType: otherUserType,
+            lastMessage: msg.content,
+            lastMessageAt: msg.createdAt,
+            isRead: msg.senderType === 'admin' ? true : msg.isRead,
+            unreadCount: isUnread ? 1 : 0,
+            orderId: msg.orderId || null,
+          });
+        } else {
+          const item = conversations.get(key);
+          if (isUnread && item) {
+            item.unreadCount = (item.unreadCount || 0) + 1;
+          }
+        }
+      });
+      
+      return Array.from(conversations.values());
+    } catch (err) {
+      console.error('Error fetching admin conversations from db:', err);
+      return [];
+    }
+  }
+
   async createMessage(message: InsertMessage): Promise<Message> {
-    const [newMessage] = await this.db.insert(messages).values(message).returning();
+    const [newMessage] = await this.db.insert(messages).values({
+      ...message,
+      isDelivered: message.isDelivered ?? false,
+      isRead: message.isRead ?? false,
+    }).returning();
     return newMessage;
   }
 
   async markMessagesAsRead(orderId: string, receiverId: string): Promise<void> {
     await this.db.update(messages)
-      .set({ isRead: true })
+      .set({ isRead: true, isDelivered: true })
       .where(and(
         eq(messages.orderId, orderId),
         eq(messages.receiverId, receiverId)
       ));
+  }
+
+  async markMessagesAsDelivered(receiverId: string, receiverType?: string, orderId?: string): Promise<void> {
+    try {
+      const cleanId = String(receiverId || '').trim();
+      const whereConditions: any[] = [
+        eq(messages.isDelivered, false),
+      ];
+      if (orderId) {
+        whereConditions.push(eq(messages.orderId, orderId));
+      }
+      if (receiverType) {
+        whereConditions.push(eq(messages.receiverType, receiverType));
+      }
+      if (cleanId) {
+        whereConditions.push(eq(messages.receiverId, cleanId));
+      }
+      await this.db.update(messages)
+        .set({ isDelivered: true })
+        .where(and(...whereConditions));
+    } catch (e) {
+      console.error('Error marking messages as delivered in db:', e);
+    }
+  }
+
+  async markUserMessagesAsRead(userId: string, userType?: string): Promise<void> {
+    try {
+      const rawId = String(userId || '').trim();
+      await this.db.update(messages)
+        .set({ isRead: true, isDelivered: true })
+        .where(
+          and(
+            eq(messages.senderId, rawId),
+            eq(messages.receiverType, 'admin'),
+            eq(messages.isRead, false)
+          )
+        );
+    } catch (e) {
+      console.error('Error marking user messages as read in db:', e);
+    }
+  }
+
+  async markAdminMessagesAsReadForUser(userId: string, userType: string): Promise<void> {
+    try {
+      const rawId = String(userId || '').trim();
+      await this.db.update(messages)
+        .set({ isRead: true, isDelivered: true })
+        .where(
+          and(
+            eq(messages.senderType, 'admin'),
+            or(
+              eq(messages.receiverId, rawId),
+              eq(messages.receiverType, userType)
+            ),
+            eq(messages.isRead, false)
+          )
+        );
+    } catch (e) {
+      console.error('Error marking admin messages as read for user in db:', e);
+    }
+  }
+
+  async markOrderMessagesAsRead(orderId: string, readerType: string, readerId?: string): Promise<void> {
+    try {
+      const targetOrderId = String(orderId || '').trim();
+      await this.db.update(messages)
+        .set({ isRead: true, isDelivered: true })
+        .where(
+          and(
+            eq(messages.orderId, targetOrderId),
+            ne(messages.senderType, readerType),
+            eq(messages.isRead, false)
+          )
+        );
+    } catch (e) {
+      console.error('Error marking order messages as read in db:', e);
+    }
   }
 
   // Audit Logs

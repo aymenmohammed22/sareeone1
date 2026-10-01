@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useLocation } from 'wouter';
-import { ArrowRight, MapPin, Clock, Phone, CheckCircle, Truck, Package, User, Star, MessageCircle, Map as MapIcon, Loader2 as Loader, XCircle, AlertTriangle } from 'lucide-react';
+import { ArrowRight, MapPin, Clock, Phone, CheckCircle, Truck, Package, User, Star, MessageCircle, Map as MapIcon, Loader2 as Loader, XCircle, AlertTriangle, ListFilter, Navigation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +11,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import RatingDialog from '@/components/RatingDialog';
 import { DriverCommunication } from '@/components/DriverCommunication';
 import MapComponent from '@/components/maps/MapComponent';
+import LiveRideTrackingView from '@/components/tracking/LiveRideTrackingView';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/context/LanguageContext';
 import { safeTriggerPhoneCall, safeOpenWhatsApp } from '@/lib/callUtils';
 
 interface OrderStatus {
@@ -56,9 +58,11 @@ const CANCELLABLE_STATUSES = ['pending', 'scheduled', 'confirmed'];
 export default function OrderTrackingPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const [, setLocation] = useLocation();
+  const { t, language } = useLanguage();
   const [showRatingDialog, setShowRatingDialog] = useState(false);
   const [hasShownRating, setHasShownRating] = useState(false);
   const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
+  const [viewMode, setViewMode] = useState<'map' | 'details'>('map');
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
@@ -144,7 +148,10 @@ export default function OrderTrackingPage() {
 
   const handleCancelOrder = async () => {
     if (!cancelReason.trim()) {
-      toast({ title: "يرجى إدخال سبب الإلغاء", variant: "destructive" });
+      toast({ 
+        title: language === 'ar' ? "يرجى إدخال سبب الإلغاء" : "Please enter cancellation reason", 
+        variant: "destructive" 
+      });
       return;
     }
     setIsCancelling(true);
@@ -157,13 +164,20 @@ export default function OrderTrackingPage() {
       const data = await response.json();
       if (response.ok && data.success) {
         setShowCancelDialog(false);
-        toast({ title: "تم إلغاء الطلب", description: `سبب الإلغاء: ${cancelReason}` });
+        toast({ 
+          title: language === 'ar' ? "تم إلغاء الطلب" : "Order Cancelled", 
+          description: `${language === 'ar' ? 'سبب الإلغاء:' : 'Reason:'} ${cancelReason}` 
+        });
         refetch();
       } else {
-        throw new Error(data.error || 'فشل في إلغاء الطلب');
+        throw new Error(data.error || (language === 'ar' ? 'فشل في إلغاء الطلب' : 'Failed to cancel order'));
       }
     } catch (error: any) {
-      toast({ title: "خطأ في الإلغاء", description: error.message, variant: "destructive" });
+      toast({ 
+        title: language === 'ar' ? "خطأ في الإلغاء" : "Cancellation Error", 
+        description: error.message, 
+        variant: "destructive" 
+      });
     } finally {
       setIsCancelling(false);
     }
@@ -171,7 +185,7 @@ export default function OrderTrackingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-md mx-auto space-y-4">
           <Skeleton className="h-8 w-3/4" />
           <Skeleton className="h-32 w-full" />
@@ -184,14 +198,18 @@ export default function OrderTrackingPage() {
 
   if (error || !orderData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-md mx-auto">
-          <Card className="text-center p-6">
+          <Card className="text-center p-6 rounded-3xl border border-orange-100">
             <Package className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-            <h2 className="text-xl font-bold text-gray-800 mb-2">الطلب غير موجود</h2>
-            <p className="text-gray-600 mb-4">لم نتمكن من العثور على هذا الطلب</p>
-            <Button onClick={() => setLocation('/')} data-testid="button-back-home">
-              العودة للرئيسية
+            <h2 className="text-xl font-black text-gray-800 mb-2">
+              {language === 'ar' ? 'الطلب غير موجود' : 'Order Not Found'}
+            </h2>
+            <p className="text-gray-600 mb-4 font-medium">
+              {language === 'ar' ? 'لم نتمكن من العثور على هذا الطلب' : 'We could not find this order'}
+            </p>
+            <Button onClick={() => setLocation('/')} data-testid="button-back-home" className="bg-[#FF5722] hover:bg-[#E64A19] text-white rounded-2xl">
+              {language === 'ar' ? 'العودة للرئيسية' : 'Back to Home'}
             </Button>
           </Card>
         </div>
@@ -234,7 +252,7 @@ export default function OrderTrackingPage() {
   };
 
   const getStatusText = (status: string) => {
-    const textMap: Record<string, string> = {
+    const textMapAr: Record<string, string> = {
       scheduled: 'مجدول',
       pending: 'في الانتظار',
       assigned: 'تم تعيين سائق',
@@ -246,110 +264,247 @@ export default function OrderTrackingPage() {
       delivered: 'تم التوصيل',
       cancelled: 'ملغي',
     };
-    return textMap[status] || status;
+    const textMapEn: Record<string, string> = {
+      scheduled: 'Scheduled',
+      pending: 'Pending',
+      assigned: 'Driver Assigned',
+      confirmed: 'Confirmed',
+      preparing: 'Preparing',
+      ready: 'Ready for Pickup',
+      picked_up: 'Picked Up',
+      on_way: 'On the way',
+      delivered: 'Delivered',
+      cancelled: 'Cancelled',
+    };
+    return (language === 'ar' ? textMapAr[status] : textMapEn[status]) || status;
   };
 
-  return (
-    <div>
-      {/* Header */}
-      <header className="bg-card border-b border-border p-4">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setLocation('/profile')}
-            data-testid="button-tracking-back"
+  // 1. Live Interactive Ride/Order Tracking View (Exact Experience from the Video)
+  if (viewMode === 'map') {
+    return (
+      <>
+        <LiveRideTrackingView
+          order={order}
+          driverLocation={driverLocation}
+          onBack={() => setLocation('/orders')}
+          onCancelOrder={() => setShowCancelDialog(true)}
+          canCancel={CANCELLABLE_STATUSES.includes(order.status)}
+        />
+
+        {/* View Mode Toggle to Details */}
+        <div className="fixed top-6 left-16 z-30 pointer-events-auto">
+          <button
+            onClick={() => setViewMode('details')}
+            className="px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-md shadow-lg border border-slate-200/80 text-xs font-black text-slate-800 hover:bg-slate-50 flex items-center gap-1.5 active:scale-95 transition-all"
+            title={language === 'ar' ? 'عرض تفاصيل الفاتورة' : 'View order details'}
           >
-            <ArrowRight className="h-5 w-5" />
+            <ListFilter className="w-3.5 h-3.5 text-[#FF5722]" />
+            <span>{language === 'ar' ? 'تفاصيل الطلب' : 'Details'}</span>
+          </button>
+        </div>
+
+        {/* Rating Dialog on completion */}
+        {showRatingDialog && orderData && (
+          <RatingDialog
+            isOpen={showRatingDialog}
+            onClose={() => setShowRatingDialog(false)}
+            orderId={order.id}
+            restaurantName={order.restaurantName || (language === 'ar' ? 'المتجر' : 'Store')}
+            driverName={order.driverName}
+          />
+        )}
+
+        {/* Cancel Modal */}
+        {showCancelDialog && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="bg-red-600 p-4 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-white" />
+                  <h3 className="font-black text-base">{language === 'ar' ? 'إلغاء الطلب' : 'Cancel Order'}</h3>
+                </div>
+                <button onClick={() => setShowCancelDialog(false)} className="text-white/80 hover:text-white">
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-5 space-y-3">
+                <p className="text-xs font-bold text-slate-600">
+                  {language === 'ar' ? 'يرجى تحديد سبب إلغاء الطلب:' : 'Please select cancellation reason:'}
+                </p>
+                <div className="space-y-1.5">
+                  {(language === 'ar' ? [
+                    'غيّرت رأيي',
+                    'طلبت بالخطأ',
+                    'تأخر الطلب',
+                    'سبب آخر',
+                  ] : [
+                    'Changed my mind',
+                    'Ordered by mistake',
+                    'Delivery delayed',
+                    'Other reason',
+                  ]).map(reason => (
+                    <button
+                      key={reason}
+                      onClick={() => setCancelReason(reason)}
+                      className={`w-full text-start px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        cancelReason === reason
+                          ? 'border-red-500 bg-red-50 text-red-700'
+                          : 'border-slate-100 hover:border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {reason}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 rounded-xl text-xs font-bold"
+                    onClick={() => setShowCancelDialog(false)}
+                    disabled={isCancelling}
+                  >
+                    {t('cancel')}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1 rounded-xl text-xs font-bold"
+                    onClick={handleCancelOrder}
+                    disabled={isCancelling || !cancelReason.trim()}
+                  >
+                    {isCancelling ? <Loader className="w-3.5 h-3.5 animate-spin" /> : (language === 'ar' ? 'تأكيد الإلغاء' : 'Confirm')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50/70 pb-16">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-[#FF6E40] via-[#FF5722] to-[#E64A19] text-white shadow-md rounded-b-[28px] sticky top-0 z-10 p-4">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/20 rounded-2xl"
+              onClick={() => setLocation('/orders')}
+              data-testid="button-tracking-back"
+            >
+              <ArrowRight className={`h-5 w-5 ${language === 'en' ? 'rotate-180' : ''}`} />
+            </Button>
+            <div>
+              <h2 className="text-lg font-black text-white">{t('track_order')}</h2>
+              <p className="text-xs text-orange-100 font-bold">{language === 'ar' ? 'طلب #' : 'Order #'}{order.orderNumber || order.id}</p>
+            </div>
+          </div>
+
+          <Button
+            onClick={() => setViewMode('map')}
+            className="bg-white/20 hover:bg-white/30 text-white rounded-2xl font-black text-xs px-3 py-1.5 flex items-center gap-1.5"
+          >
+            <Navigation className="w-3.5 h-3.5 text-white" />
+            <span>{language === 'ar' ? 'الخريطة الحية' : 'Live Map'}</span>
           </Button>
-          <h2 className="text-xl font-bold text-foreground">تتبع الطلب</h2>
         </div>
       </header>
 
-      <section className="p-4 space-y-6">
+      <section className="max-w-2xl mx-auto p-4 space-y-4">
         {/* Order Status Card */}
-        <Card>
-          <CardHeader>
+        <Card className="rounded-3xl border border-orange-100/80 shadow-[0_4px_16px_rgba(0,0,0,0.03)] overflow-hidden bg-white">
+          <CardHeader className="bg-orange-50/30 border-b border-orange-100/50 pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">طلب رقم #{order.orderNumber || order.id}</CardTitle>
+              <CardTitle className="text-base font-black text-slate-900">{language === 'ar' ? 'طلب رقم #' : 'Order #'}{order.orderNumber || order.id}</CardTitle>
               <Badge 
-                className={`${getStatusColor(order.status)} text-white`}
+                className={`${getStatusColor(order.status)} text-white font-black text-xs px-2.5 py-1 rounded-xl shadow-xs`}
                 data-testid="order-status-badge"
               >
                 {getStatusText(order.status)}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-4">
             {/* Live Update Indicator */}
-            <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full w-fit">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>التحديث المباشر مفعل</span>
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-3 py-1.5 rounded-full w-fit">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span>{language === 'ar' ? 'التحديث المباشر مفعل لحظة بلحظة' : 'Live Real-Time Updates Active'}</span>
             </div>
             
-            <div className="flex items-center gap-3">
-              <Clock className="h-5 w-5 text-muted-foreground" />
-              <span className="text-foreground">الوقت المتوقع للوصول: </span>
-              <span className="font-bold text-primary" data-testid="estimated-time">
-                {order.estimatedTime}
-              </span>
+            <div className="flex items-center gap-3 bg-orange-50/50 p-3 rounded-2xl border border-orange-100/60">
+              <div className="w-9 h-9 rounded-xl bg-white border border-orange-100 flex items-center justify-center text-[#FF5722]">
+                <Clock className="h-5 w-5 text-[#FF5722]" />
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 font-bold">{language === 'ar' ? 'الوقت المتوقع للوصول: ' : 'Estimated Arrival: '}</span>
+                <span className="font-black text-sm text-[#FF5722] block" data-testid="estimated-time">
+                  {order.estimatedTime}
+                </span>
+              </div>
             </div>
             
             <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">حالة الطلب</span>
-                <span className="text-foreground">{getStatusProgress(order.status)}%</span>
+              <div className="flex justify-between text-xs font-black">
+                <span className="text-slate-500">{language === 'ar' ? 'مرحلة التقدم' : 'Progress'}</span>
+                <span className="text-[#FF5722]">{getStatusProgress(order.status)}%</span>
               </div>
               <Progress 
                 value={getStatusProgress(order.status)} 
-                className="h-2"
+                className="h-2.5 rounded-full bg-orange-100 [&>div]:bg-gradient-to-r [&>div]:from-[#FF6E40] [&>div]:to-[#FF5722]"
                 data-testid="order-progress"
               />
             </div>
 
             {/* معلومات الطلب المجدول */}
             {order.status === 'scheduled' && (order.scheduledDate || order.scheduledTimeSlot) && (
-              <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-3">
                 <Clock className="h-5 w-5 text-indigo-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-bold text-indigo-800">طلب مجدول</p>
+                  <p className="text-sm font-black text-indigo-900">{language === 'ar' ? 'طلب مجدول' : 'Scheduled Order'}</p>
                   {order.scheduledDate && (
-                    <p className="text-xs text-indigo-600 mt-0.5">
-                      التاريخ: {new Date(order.scheduledDate).toLocaleDateString('ar-SA', {
+                    <p className="text-xs font-bold text-indigo-700 mt-0.5">
+                      {language === 'ar' ? 'التاريخ:' : 'Date:'} {new Date(order.scheduledDate).toLocaleDateString(language === 'ar' ? 'ar-SA' : 'en-US', {
                         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
                       })}
                     </p>
                   )}
                   {order.scheduledTimeSlot && (
-                    <p className="text-xs text-indigo-600 mt-0.5">الوقت: {order.scheduledTimeSlot}</p>
+                    <p className="text-xs font-bold text-indigo-700 mt-0.5">{language === 'ar' ? 'الوقت:' : 'Time:'} {order.scheduledTimeSlot}</p>
                   )}
-                  <p className="text-xs text-indigo-500 mt-1">سيتم تفعيل طلبك تلقائياً قبل 30 دقيقة من الوقت المحدد</p>
+                  <p className="text-xs text-indigo-600 mt-1">
+                    {language === 'ar' ? 'سيتم تفعيل طلبك تلقائياً قبل 30 دقيقة من الوقت المحدد' : 'Your order will be activated 30 minutes prior to scheduled time'}
+                  </p>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Wasalni Pickup Info - تم التصحيح هنا */}
+        {/* Wasalni Pickup Info */}
         {order.isSareeOneLi && (
-          <Card className="border-primary/20 bg-primary/5">
+          <Card className="rounded-3xl border border-orange-200/80 bg-orange-50/40 shadow-[0_4px_16px_rgba(0,0,0,0.02)] overflow-hidden">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
-                <Package className="h-5 w-5 text-primary mt-1" />
+                <div className="w-10 h-10 rounded-2xl bg-white border border-orange-200 flex items-center justify-center text-[#FF5722] shrink-0">
+                  <Package className="h-5 w-5 text-[#FF5722]" />
+                </div>
                 <div>
-                  <h4 className="font-bold text-primary mb-1">بيانات الاستلام (وصل لي)</h4>
-                  <p className="text-sm font-bold text-gray-800 mb-1">
+                  <h4 className="font-black text-[#FF5722] text-sm mb-1">{language === 'ar' ? 'بيانات الاستلام (وصل لي)' : 'Pickup Details (Wasalni)'}</h4>
+                  <p className="text-xs font-black text-slate-800 mb-1">
                     {order.pickupAddress}
                   </p>
                   {order.pickupName && (
-                    <p className="text-xs text-gray-600">الاسم: {order.pickupName}</p>
+                    <p className="text-xs font-bold text-slate-500">{language === 'ar' ? 'الاسم:' : 'Name:'} {order.pickupName}</p>
                   )}
                   {order.pickupPhone && (
-                    <p className="text-xs text-gray-600">الهاتف: {order.pickupPhone}</p>
+                    <p className="text-xs font-bold text-slate-500">{language === 'ar' ? 'الهاتف:' : 'Phone:'} {order.pickupPhone}</p>
                   )}
                   {order.waselLiItemType && (
-                    <Badge variant="outline" className="mt-2 bg-white text-[10px]">
-                      نوع الغرض: {order.waselLiItemType}
+                    <Badge variant="outline" className="mt-2 bg-white text-[10px] font-black border-orange-200 text-[#FF5722]">
+                      {language === 'ar' ? 'نوع الغرض:' : 'Item Type:'} {order.waselLiItemType}
                     </Badge>
                   )}
                 </div>
@@ -361,30 +516,32 @@ export default function OrderTrackingPage() {
         {/* Driver Info & Map */}
         {(['confirmed', 'preparing', 'ready', 'picked_up', 'on_way'].includes(order.status)) && order.driverId && (
           <div className="space-y-4">
-            <Card className="overflow-hidden">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-md flex items-center gap-2">
-                  <MapIcon className="h-4 w-4 text-primary" />
-                  تتبع الموقع المباشر
+            <Card className="rounded-3xl border border-orange-100/80 shadow-[0_4px_16px_rgba(0,0,0,0.03)] overflow-hidden bg-white">
+              <CardHeader className="pb-2 bg-orange-50/30 border-b border-orange-100/50">
+                <CardTitle className="text-sm font-black flex items-center gap-2 text-slate-900">
+                  <MapIcon className="h-4 w-4 text-[#FF5722]" />
+                  {language === 'ar' ? 'تتبع الموقع المباشر' : 'Live Driver Tracking'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 h-[250px] relative">
+              <CardContent className="p-0 h-[240px] relative">
                 <MapComponent 
-                  center={driverLocation || [15.3694, 44.1910]} // Default to Sana'a if no location
+                  center={driverLocation || [15.3694, 44.1910]}
                   zoom={15}
                   height="100%"
                   driverPosition={driverLocation || undefined}
                   markers={order.customerLocationLat && order.customerLocationLng ? [{
                     position: [parseFloat(order.customerLocationLat), parseFloat(order.customerLocationLng)],
-                    title: 'موقعك',
+                    title: language === 'ar' ? 'موقعك' : 'Your Location',
                     type: 'destination'
                   }] : []}
                 />
                 {!driverLocation && (
-                  <div className="absolute inset-0 bg-black/5 flex items-center justify-center backdrop-blur-[1px] z-[400]">
-                    <div className="bg-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
-                      <Loader className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm font-medium">في انتظار موقع السائق...</span>
+                  <div className="absolute inset-0 bg-black/10 flex items-center justify-center backdrop-blur-[1px] z-[400]">
+                    <div className="bg-white px-4 py-2 rounded-2xl shadow-lg border border-orange-100 flex items-center gap-2">
+                      <Loader className="h-4 w-4 animate-spin text-[#FF5722]" />
+                      <span className="text-xs font-black text-slate-800">
+                        {language === 'ar' ? 'في انتظار إشارة موقع السائق...' : 'Waiting for driver GPS location...'}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -394,10 +551,11 @@ export default function OrderTrackingPage() {
             <DriverCommunication 
               driver={{
                 id: order.driverId || '',
-                name: order.driverName || 'سائق التوصيل',
+                name: order.driverName || (language === 'ar' ? 'سائق التوصيل' : 'Delivery Driver'),
                 phone: order.driverPhone || '',
                 isAvailable: true
               }}
+              orderId={order.id}
               orderNumber={order.orderNumber}
               customerLocation={order.deliveryAddress}
             />
@@ -405,13 +563,15 @@ export default function OrderTrackingPage() {
         )}
 
         {/* Delivery Address */}
-        <Card>
+        <Card className="rounded-3xl border border-orange-100/80 shadow-[0_4px_16px_rgba(0,0,0,0.03)] overflow-hidden bg-white">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <MapPin className="h-5 w-5 text-primary mt-1" />
+              <div className="w-10 h-10 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-[#FF5722] shrink-0">
+                <MapPin className="h-5 w-5 text-[#FF5722]" />
+              </div>
               <div>
-                <h4 className="font-medium text-foreground mb-1">عنوان التوصيل</h4>
-                <p className="text-sm text-foreground" data-testid="delivery-address">
+                <h4 className="font-black text-xs text-slate-400 mb-0.5">{t('delivery_address')}</h4>
+                <p className="text-sm font-black text-slate-800" data-testid="delivery-address">
                   {order.deliveryAddress}
                 </p>
               </div>
@@ -420,31 +580,31 @@ export default function OrderTrackingPage() {
         </Card>
 
         {/* Order Items */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">تفاصيل الطلب</CardTitle>
+        <Card className="rounded-3xl border border-orange-100/80 shadow-[0_4px_16px_rgba(0,0,0,0.03)] overflow-hidden bg-white">
+          <CardHeader className="pb-3 bg-orange-50/30 border-b border-orange-100/50">
+            <CardTitle className="text-sm font-black text-slate-900">{t('order_summary')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 pt-3">
             {order.items.map((item, index) => (
-              <div key={index} className="flex justify-between items-center py-2 border-b border-border last:border-0">
+              <div key={index} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
                 <div className="flex-1">
-                  <span className="text-foreground font-medium" data-testid={`item-name-${index}`}>
+                  <span className="text-slate-800 font-bold text-xs" data-testid={`item-name-${index}`}>
                     {item.name}
                   </span>
-                  <span className="text-muted-foreground text-sm mr-2">
+                  <span className="text-slate-400 font-bold text-xs mx-2">
                     × {item.quantity}
                   </span>
                 </div>
-                <span className="font-bold text-primary" data-testid={`item-price-${index}`}>
-                  {item.price * item.quantity} ريال
+                <span className="font-black text-xs text-slate-900" data-testid={`item-price-${index}`}>
+                  {item.price * item.quantity} {t('currency_riyal')}
                 </span>
               </div>
             ))}
-            <div className="border-t border-border pt-3 mt-3">
-              <div className="flex justify-between items-center font-bold">
-                <span className="text-foreground">الإجمالي</span>
-                <span className="text-primary" data-testid="order-total">
-                  {order.total} ريال
+            <div className="border-t border-orange-100 pt-3 mt-2">
+              <div className="flex justify-between items-center font-black">
+                <span className="text-slate-700 text-sm">{t('total')}</span>
+                <span className="text-[#FF5722] text-base" data-testid="order-total">
+                  {order.total} {t('currency_riyal')}
                 </span>
               </div>
             </div>
@@ -452,21 +612,21 @@ export default function OrderTrackingPage() {
         </Card>
 
         {/* Order Timeline */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">تاريخ الطلب</CardTitle>
+        <Card className="rounded-3xl border border-orange-100/80 shadow-[0_4px_16px_rgba(0,0,0,0.03)] overflow-hidden bg-white">
+          <CardHeader className="pb-3 bg-orange-50/30 border-b border-orange-100/50">
+            <CardTitle className="text-sm font-black text-slate-900">{language === 'ar' ? 'تاريخ ومراحل الطلب' : 'Order Timeline'}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-3">
             <div className="space-y-4">
               {tracking.map((status, index) => (
                 <div key={status.id} className="flex items-start gap-3">
-                  <div className={`w-4 h-4 rounded-full ${getStatusColor(status.status)} mt-1 flex-shrink-0`} />
+                  <div className={`w-3.5 h-3.5 rounded-full ${getStatusColor(status.status)} mt-1 flex-shrink-0`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-foreground font-medium" data-testid={`timeline-description-${index}`}>
-                      {status.description || status.message || 'تحديث الطلب'}
+                    <p className="text-slate-800 font-bold text-xs" data-testid={`timeline-description-${index}`}>
+                      {status.description || status.message || (language === 'ar' ? 'تحديث الطلب' : 'Order update')}
                     </p>
-                    <p className="text-sm text-muted-foreground" data-testid={`timeline-time-${index}`}>
-                      {new Date(status.timestamp).toLocaleTimeString('ar-YE', { 
+                    <p className="text-[11px] text-slate-400 font-bold" data-testid={`timeline-time-${index}`}>
+                      {new Date(status.timestamp).toLocaleTimeString(language === 'ar' ? 'ar-YE' : 'en-US', { 
                         hour: '2-digit', 
                         minute: '2-digit' 
                       })}
@@ -483,40 +643,40 @@ export default function OrderTrackingPage() {
           <div className="grid grid-cols-2 gap-3">
             <Button 
               variant="outline" 
-              className="w-full flex items-center justify-center gap-2 border-green-600 text-green-600 hover:bg-green-50"
-              onClick={() => safeOpenWhatsApp(supportWhatsapp, `السلام عليكم، أحتاج مساعدة بخصوص طلبي #${order.orderNumber || order.id}`)}
+              className="w-full flex items-center justify-center gap-2 border-green-600 text-green-600 hover:bg-green-50 rounded-2xl font-black text-xs py-3"
+              onClick={() => safeOpenWhatsApp(supportWhatsapp, `${language === 'ar' ? 'السلام عليكم، أحتاج مساعدة بخصوص طلبي #' : 'Hello, I need help with order #'}${order.orderNumber || order.id}`)}
               data-testid="button-whatsapp-support"
             >
               <MessageCircle className="h-4 w-4" />
-              واتساب الإدارة
+              {language === 'ar' ? 'واتساب الإدارة' : 'Support WhatsApp'}
             </Button>
             <Button 
               variant="outline" 
-              className="w-full flex items-center justify-center gap-2 border-blue-600 text-blue-600 hover:bg-blue-50"
+              className="w-full flex items-center justify-center gap-2 border-blue-600 text-blue-600 hover:bg-blue-50 rounded-2xl font-black text-xs py-3"
               onClick={() => safeTriggerPhoneCall(supportPhone)}
               data-testid="button-call-support"
             >
               <Phone className="h-4 w-4" />
-              اتصال بالإدارة
+              {language === 'ar' ? 'اتصال بالإدارة' : 'Call Support'}
             </Button>
           </div>
           
           {CANCELLABLE_STATUSES.includes(order.status) && (
             <Button 
               variant="destructive" 
-              className="w-full flex items-center justify-center gap-2"
+              className="w-full flex items-center justify-center gap-2 rounded-2xl font-black text-xs py-3 shadow-md"
               data-testid="button-cancel-order"
               onClick={() => { setCancelReason(''); setShowCancelDialog(true); }}
             >
               <XCircle className="h-4 w-4" />
-              إلغاء الطلب
+              {language === 'ar' ? 'إلغاء الطلب' : 'Cancel Order'}
             </Button>
           )}
 
           {!CANCELLABLE_STATUSES.includes(order.status) && order.status !== 'delivered' && order.status !== 'cancelled' && (
-            <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>لا يمكن إلغاء الطلب بعد بدء التوصيل، يرجى التواصل مع الإدارة</span>
+              <span>{language === 'ar' ? 'لا يمكن إلغاء الطلب بعد بدء التوصيل، يرجى التواصل مع الإدارة' : 'Order cannot be cancelled after delivery starts. Please contact support.'}</span>
             </div>
           )}
         </div>
@@ -525,29 +685,35 @@ export default function OrderTrackingPage() {
       {/* نافذة إلغاء الطلب */}
       {showCancelDialog && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
             <div className="bg-red-600 px-5 py-4 text-white">
               <div className="flex items-center gap-2">
                 <XCircle className="h-5 w-5" />
-                <h3 className="font-black text-lg">إلغاء الطلب</h3>
+                <h3 className="font-black text-lg">{language === 'ar' ? 'إلغاء الطلب' : 'Cancel Order'}</h3>
               </div>
-              <p className="text-white/80 text-sm mt-1">طلب رقم #{order.orderNumber}</p>
+              <p className="text-white/80 text-sm mt-1">{language === 'ar' ? 'طلب رقم #' : 'Order #'}{order.orderNumber}</p>
             </div>
             <div className="px-5 py-4 space-y-4">
               <div>
-                <p className="text-sm font-bold text-gray-700 mb-2">لماذا تريد إلغاء الطلب؟</p>
+                <p className="text-sm font-bold text-gray-700 mb-2">{language === 'ar' ? 'لماذا تريد إلغاء الطلب؟' : 'Why do you want to cancel?'}</p>
                 <div className="space-y-2">
-                  {[
+                  {(language === 'ar' ? [
                     'غيّرت رأيي',
                     'طلبت بالخطأ',
                     'وجدت بديلاً أفضل',
                     'تأخر الطلب كثيراً',
                     'ظروف طارئة',
-                  ].map(reason => (
+                  ] : [
+                    'Changed my mind',
+                    'Ordered by mistake',
+                    'Found a better alternative',
+                    'Delivery is delayed',
+                    'Emergency reasons',
+                  ]).map(reason => (
                     <button
                       key={reason}
                       onClick={() => setCancelReason(reason)}
-                      className={`w-full text-right px-3 py-2.5 rounded-xl text-sm border-2 transition-all ${
+                      className={`w-full ${language === 'ar' ? 'text-right' : 'text-left'} px-3 py-2.5 rounded-xl text-sm border-2 transition-all ${
                         cancelReason === reason
                           ? 'border-red-500 bg-red-50 text-red-700 font-bold'
                           : 'border-gray-100 hover:border-gray-200 text-gray-700'
@@ -558,7 +724,7 @@ export default function OrderTrackingPage() {
                   ))}
                 </div>
                 <textarea
-                  placeholder="سبب آخر (اختياري)..."
+                  placeholder={language === 'ar' ? "سبب آخر (اختياري)..." : "Other reason (optional)..."}
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
                   className="w-full mt-2 p-3 border-2 rounded-xl text-sm resize-none focus:border-red-400 outline-none"
@@ -569,22 +735,22 @@ export default function OrderTrackingPage() {
               <div className="flex gap-3 pt-1">
                 <Button
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 rounded-2xl font-bold"
                   onClick={() => setShowCancelDialog(false)}
                   disabled={isCancelling}
                 >
-                  رجوع
+                  {t('cancel')}
                 </Button>
                 <Button
                   variant="destructive"
-                  className="flex-1"
+                  className="flex-1 rounded-2xl font-bold"
                   onClick={handleCancelOrder}
                   disabled={isCancelling || !cancelReason.trim()}
                 >
                   {isCancelling ? (
                     <Loader className="animate-spin h-4 w-4" />
                   ) : (
-                    'تأكيد الإلغاء'
+                    language === 'ar' ? 'تأكيد الإلغاء' : 'Confirm Cancel'
                   )}
                 </Button>
               </div>
@@ -598,7 +764,7 @@ export default function OrderTrackingPage() {
           isOpen={showRatingDialog}
           onClose={() => setShowRatingDialog(false)}
           orderId={order.id}
-          restaurantName={order.restaurantName || 'المتجر'}
+          restaurantName={order.restaurantName || (language === 'ar' ? 'المتجر' : 'Store')}
           driverName={order.driverName}
         />
       )}

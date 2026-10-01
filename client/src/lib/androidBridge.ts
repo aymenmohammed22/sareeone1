@@ -153,5 +153,12 @@ export const androidBridge = {
       if (storedKey) return storedKey;
     }
     return null;
+  },
+  /**
+   * Returns true if running inside an authorized native Android/Flutter wrapper
+   * (either via JavascriptInterface or via verified API key)
+   */
+  isNativeContainer: (): boolean => {
+    return androidBridge.isAvailable() || !!androidBridge.getApiKey();
   }
 };

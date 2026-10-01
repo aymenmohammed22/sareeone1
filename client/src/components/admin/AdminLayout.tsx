@@ -47,6 +47,8 @@ import {
   Bike,
   FileText,
   BookOpen,
+  MessageSquare,
+  Bot,
 } from 'lucide-react';
 import type { UiSettings } from '@shared/schema';
 
@@ -379,7 +381,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
       const handleMessage = (event: MessageEvent) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === "order_update" || msg.type === "new_order" || msg.type === "NEW_NOTIFICATION" || msg.type === "settings_changed" || msg.type === "withdrawal_request") {
+          if (msg.type === "order_update" || msg.type === "new_order" || msg.type === "NEW_NOTIFICATION" || msg.type === "settings_changed" || msg.type === "withdrawal_request" || msg.type === "new_message" || msg.type === "NEW_CHAT_MESSAGE") {
             queryClient.invalidateQueries({ queryKey: ['/api/admin/orders'] });
             queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
             queryClient.invalidateQueries({ queryKey: ['/api/admin/notifications'] });
@@ -387,6 +389,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
             queryClient.invalidateQueries({ queryKey: ['/api/wasalni'] });
             queryClient.invalidateQueries({ queryKey: ['/api/admin/ui-settings'] });
             queryClient.invalidateQueries({ queryKey: ['/api/admin/withdrawals/pending'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/messages/admin/conversations'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/messages/admin-chat'] });
           }
           if (msg.type === "order_unassigned_alert") {
             const p = msg.payload || {};
@@ -442,23 +446,43 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
   const { data: ordersData } = useQuery<any>({
     queryKey: ['/api/admin/orders'],
-    refetchInterval: 45000,
+    refetchInterval: 15000,
   });
 
   const { data: wasalniData = [] } = useQuery<any[]>({
     queryKey: ['/api/wasalni'],
-    refetchInterval: 45000,
+    refetchInterval: 15000,
   });
 
   const { data: adminNotifications = [] } = useQuery<any[]>({
     queryKey: ['/api/admin/notifications?recipientType=admin'],
-    refetchInterval: 45000,
+    refetchInterval: 15000,
   });
 
   const { data: pendingWithdrawals = [] } = useQuery<any[]>({
     queryKey: ['/api/admin/withdrawals/pending'],
-    refetchInterval: 45000,
+    refetchInterval: 15000,
   });
+
+  const { data: chatConversationsData } = useQuery<any>({
+    queryKey: ['/api/messages/admin/conversations'],
+    refetchInterval: 5000,
+  });
+
+  const { data: orderMonitoringData } = useQuery<any>({
+    queryKey: ['/api/messages/admin/order-monitoring'],
+    refetchInterval: 5000,
+  });
+
+  const unreadChatCount = useMemo(() => {
+    const list = chatConversationsData?.conversations || [];
+    return list.reduce((acc: number, c: any) => acc + (c.unreadCount || (c.isRead ? 0 : 1)), 0);
+  }, [chatConversationsData]);
+
+  const orderMonitoringUnreadCount = useMemo(() => {
+    const conversations = orderMonitoringData?.conversations || [];
+    return conversations.reduce((acc: number, c: any) => acc + (c.unreadCount || 0), 0);
+  }, [orderMonitoringData]);
 
   const filteredAdminNotifs = useMemo(() => {
     const customerExcludeTypes = [
@@ -552,6 +576,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
       key: 'management',
       label: 'الإدارة والموارد',
       items: [
+        { icon: MessageSquare, label: 'صندوق المحادثات والدعم', path: '/admin/chat', badge: unreadChatCount, permission: 'manage_customers' },
         { icon: UserCog, label: 'الموارد البشرية', path: '/admin/hr-management', permission: 'manage_customers' },
         { icon: Users, label: 'العملاء', path: '/admin/users', permission: 'manage_customers' },
         { icon: Shield, label: 'الأمن والخصوصية', path: '/admin/security', permission: 'manage_settings' },
@@ -564,6 +589,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
       key: 'settings',
       label: 'الإعدادات',
       items: [
+        { icon: Bot, label: 'بوت واتساب السيرفر (OTP)', path: '/admin/whatsapp-bot', permission: 'manage_settings' },
         { icon: Smartphone, label: 'إدارة الواجهات والإعدادات', path: '/admin/ui-settings', permission: 'manage_settings' },
         { icon: FileText, label: 'تصميم المستندات والسندات', path: '/admin/invoice-design', permission: 'manage_settings' },
         { icon: BookOpen, label: 'دليل استخدام النظام PDF', path: '/admin/user-guide', permission: null },
@@ -571,7 +597,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
         { icon: User, label: 'الملف الشخصي', path: '/admin/profile', permission: null },
       ].filter(item => hasPermission(item.permission))
     },
-  ], [pendingOrdersCount, pendingWasalniCount, pendingWithdrawalsCount, hasPermission]);
+  ], [pendingOrdersCount, pendingWasalniCount, pendingWithdrawalsCount, unreadChatCount, hasPermission]);
 
   const handleNavScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     navScrollRef.current = (e.currentTarget as HTMLDivElement).scrollTop;
@@ -681,6 +707,21 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           </div>
 
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative h-9 w-9 text-[#ff4500] hover:text-[#e03e00] hover:bg-orange-50 transition-colors"
+              onClick={() => handleNavigation('/admin/notifications?tab=direct')}
+              title="مراقبة وإشراف محادثات العملاء والسائقين"
+            >
+              <MessageSquare className="h-5 w-5 text-[#ff4500]" />
+              {orderMonitoringUnreadCount > 0 && (
+                <span className="absolute top-1 right-1 bg-[#ff2200] text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-black leading-none shadow-sm animate-pulse">
+                  {orderMonitoringUnreadCount > 9 ? '9+' : orderMonitoringUnreadCount}
+                </span>
+              )}
+            </Button>
+
             <div className="relative">
               <Button
                 variant="ghost"
@@ -783,6 +824,24 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Floating Chat Icon for Admin */}
+      {location !== '/admin/chat' && (
+        <div className="fixed bottom-6 left-6 z-[1000]">
+          <button
+            onClick={() => handleNavigation('/admin/chat')}
+            className="w-13 h-13 md:w-14 md:h-14 rounded-full bg-gradient-to-tr from-[#ff4500] via-[#ff5722] to-[#ff6a00] text-white shadow-xl shadow-orange-600/40 flex items-center justify-center hover:scale-110 transition-transform active:scale-95 border-2 border-white relative"
+            title="محادثات العملاء والسائقين"
+          >
+            <MessageSquare className="h-7 w-7" />
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-[#ff2200] text-white text-[11px] font-black rounded-full min-w-[22px] h-[22px] px-1 flex items-center justify-center border-2 border-white shadow-md animate-pulse">
+                {unreadChatCount > 9 ? '9+' : unreadChatCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

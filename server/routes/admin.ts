@@ -2,6 +2,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import { storage } from "../storage";
+import { whatsAppBotGateway } from "../services/whatsappBotGateway";
 import { broadcastSettingsChanged, broadcastEvent } from "../broadcast";
 import { z } from "zod";
 import { eq, and, desc, sql, or, like, asc, inArray } from "drizzle-orm";
@@ -399,50 +400,77 @@ router.post("/restaurants", async (req, res) => {
     const coercedData = coerceRequestData(req.body);
     
     // تقديم قيم افتراضية للحقول المطلوبة
+    // أوقات العمل
+    const openingTime = coercedData.openingTime || "08:00";
+    const closingTime = coercedData.closingTime || "23:00";
+    const workingDays = coercedData.workingDays || "0,1,2,3,4,5,6";
+
     const restaurantData = {
       // الحقول المطلوبة
       name: coercedData.name || "مطعم جديد",
-      description: coercedData.description || "وصف المطعم",
+      description: coercedData.description || null,
       image: coercedData.image || "https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg",
+      phone: coercedData.phone || null,
       deliveryTime: coercedData.deliveryTime || "30-45 دقيقة",
       
       // الحقول الاختيارية مع قيم افتراضية
-      rating: coercedData.rating || "0.0",
-      reviewCount: coercedData.reviewCount || 0,
-      minimumOrder: coercedData.minimumOrder || "0",
-      deliveryFee: coercedData.deliveryFee || "0",
-      perKmFee: coercedData.perKmFee || "0",
-      commissionRate: coercedData.commissionRate || "10",
-      categoryId: coercedData.categoryId,
+      rating: String(coercedData.rating || "0.0"),
+      reviewCount: parseInt(String(coercedData.reviewCount || 0)) || 0,
+      minimumOrder: String(coercedData.minimumOrder || "0"),
+      deliveryFee: String(coercedData.deliveryFee || "0"),
+      perKmFee: String(coercedData.perKmFee || "0"),
+      commissionRate: String(coercedData.commissionRate || "10"),
+      categoryId: coercedData.categoryId || null,
       
       // أوقات العمل
-      openingTime: coercedData.openingTime || "08:00",
-      closingTime: coercedData.closingTime || "23:00",
-      workingDays: coercedData.workingDays || "0,1,2,3,4,5,6",
+      openingTime,
+      closingTime,
+      workingDays,
       
       // حالات المطعم (الآن مع تحويل صحيح للبوليان)
-      isOpen: coercedData.isOpen !== undefined ? coercedData.isOpen : true,
-      isActive: coercedData.isActive !== undefined ? coercedData.isActive : true,
-      isFeatured: coercedData.isFeatured !== undefined ? coercedData.isFeatured : false,
-      isNew: coercedData.isNew !== undefined ? coercedData.isNew : false,
-      isTemporarilyClosed: coercedData.isTemporarilyClosed !== undefined ? coercedData.isTemporarilyClosed : false,
-      temporaryCloseReason: coercedData.temporaryCloseReason,
+      isOpen: coercedData.isOpen !== undefined ? Boolean(coercedData.isOpen) : true,
+      isActive: coercedData.isActive !== undefined ? Boolean(coercedData.isActive) : true,
+      isFeatured: coercedData.isFeatured !== undefined ? Boolean(coercedData.isFeatured) : false,
+      isNew: coercedData.isNew !== undefined ? Boolean(coercedData.isNew) : false,
+      isTemporarilyClosed: coercedData.isTemporarilyClosed !== undefined ? Boolean(coercedData.isTemporarilyClosed) : false,
+      temporaryCloseReason: coercedData.temporaryCloseReason || null,
       
       // الموقع (الآن مع تحويل صحيح للأرقام العشرية)
-      latitude: coercedData.latitude,
-      longitude: coercedData.longitude,
-      address: coercedData.address,
+      latitude: coercedData.latitude || null,
+      longitude: coercedData.longitude || null,
+      address: coercedData.address || null,
       
-      // حقول التوقيت (سيتم إضافتها تلقائياً بواسطة قاعدة البيانات)
+      // حقول التوقيت
       createdAt: new Date(),
       updatedAt: new Date()
     };
     
-    console.log("Processed restaurant data:", restaurantData);
+    let newRestaurant;
+    try {
+      // استخدام safeParse للتحقق من البيانات ولكن السماح بالمرور في حالة وجود أخطاء غير قاتلة
+      const validationResult = insertRestaurantSchema.safeParse(restaurantData);
+      
+      if (!validationResult.success) {
+        console.warn("Restaurant validation warnings:", validationResult.error.format());
+        // في حالة فشل التحقق، نقوم بتنظيف البيانات يدوياً لضمان التوافق مع قاعدة البيانات
+        const safeData = { ...restaurantData };
+        // إزالة الحقول التي قد تسبب مشاكل إذا كانت غير صالحة
+        if (safeData.categoryId && (typeof safeData.categoryId !== 'string' || safeData.categoryId.length < 10)) {
+          safeData.categoryId = null;
+        }
+        newRestaurant = await storage.createRestaurant(safeData as any);
+      } else {
+        newRestaurant = await storage.createRestaurant(validationResult.data);
+      }
+    } catch (insertError: any) {
+      console.error("خطأ حرج في قاعدة البيانات عند إضافة المطعم:", insertError);
+      return res.status(400).json({ 
+        error: "خطأ في بيانات المتجر. يرجى التأكد من الحقول المطلوبة.",
+        details: insertError?.message 
+      });
+    }
     
-    const validatedData = insertRestaurantSchema.parse(restaurantData);
-    
-    const newRestaurant = await storage.createRestaurant(validatedData);
+    broadcastEvent('restaurant_update', { action: 'create', restaurant: newRestaurant });
     broadcastSettingsChanged('restaurants');
     res.status(201).json(newRestaurant);
   } catch (error) {
@@ -474,16 +502,36 @@ router.put("/restaurants/:id", async (req, res) => {
     if (coercedData.isActive !== undefined) updateFields.isActive = Boolean(coercedData.isActive);
     if (coercedData.isFeatured !== undefined) updateFields.isFeatured = Boolean(coercedData.isFeatured);
     if (coercedData.isNew !== undefined) updateFields.isNew = Boolean(coercedData.isNew);
-    if (coercedData.isTemporarilyClosed !== undefined) updateFields.isTemporarilyClosed = Boolean(coercedData.isTemporarilyClosed);
-    if (coercedData.temporaryCloseReason !== undefined) updateFields.temporaryCloseReason = coercedData.temporaryCloseReason ? String(coercedData.temporaryCloseReason) : null;
+    if (coercedData.isTemporarilyClosed !== undefined) {
+      updateFields.isTemporarilyClosed = Boolean(coercedData.isTemporarilyClosed);
+      if (!updateFields.isTemporarilyClosed) {
+        updateFields.temporaryCloseReason = null;
+      }
+    }
+    if (coercedData.temporaryCloseReason !== undefined) {
+      const reasonStr = coercedData.temporaryCloseReason ? String(coercedData.temporaryCloseReason).trim() : null;
+      updateFields.temporaryCloseReason = updateFields.isTemporarilyClosed === false ? null : reasonStr;
+    }
     if (coercedData.openingTime !== undefined) updateFields.openingTime = coercedData.openingTime ? String(coercedData.openingTime) : null;
     if (coercedData.closingTime !== undefined) updateFields.closingTime = coercedData.closingTime ? String(coercedData.closingTime) : null;
-    if (coercedData.workingDays !== undefined) updateFields.workingDays = coercedData.workingDays ? String(coercedData.workingDays) : null;
+    if (coercedData.workingDays !== undefined) {
+      if (Array.isArray(coercedData.workingDays)) {
+        updateFields.workingDays = coercedData.workingDays.join(',');
+      } else if (coercedData.workingDays) {
+        updateFields.workingDays = String(coercedData.workingDays).trim();
+      } else {
+        updateFields.workingDays = '0,1,2,3,4,5,6';
+      }
+    }
     if (coercedData.address !== undefined) updateFields.address = coercedData.address ? String(coercedData.address) : null;
 
     if (coercedData.categoryId !== undefined) {
       const catId = coercedData.categoryId;
-      updateFields.categoryId = (catId === '' || catId === 'null' || catId === 'undefined' || catId === null) ? null : String(catId);
+      updateFields.categoryId = (!catId || catId === '' || catId === 'null' || catId === 'undefined') ? null : String(catId);
+    }
+
+    if (coercedData.commissionRate !== undefined) {
+      updateFields.commissionRate = String(coercedData.commissionRate);
     }
 
     if (coercedData.latitude !== undefined) {
@@ -536,6 +584,7 @@ router.put("/restaurants/:id", async (req, res) => {
       return res.status(404).json({ error: "المطعم غير موجود" });
     }
     
+    broadcastEvent('restaurant_update', { action: 'update', restaurant: updatedRestaurant });
     broadcastSettingsChanged('restaurants');
     res.json(updatedRestaurant);
   } catch (error) {
@@ -1359,6 +1408,7 @@ router.post("/drivers", async (req, res) => {
     const validatedData = insertDriverSchema.parse(driverData);
     
     const newDriver = await dbStorage.createDriver(validatedData);
+    broadcastEvent('driver_updated', { action: 'create', driverId: newDriver?.id, driver: newDriver });
     res.status(201).json(newDriver);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -1389,6 +1439,7 @@ router.put("/drivers/:id", async (req, res) => {
       return res.status(404).json({ error: "السائق غير موجود" });
     }
     
+    broadcastEvent('driver_updated', { action: 'update', driverId: id, driver: updatedDriver });
     res.json(updatedDriver);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -1412,6 +1463,7 @@ router.delete("/drivers/:id", async (req, res) => {
       return res.status(404).json({ error: "السائق غير موجود" });
     }
     
+    broadcastEvent('driver_updated', { action: 'delete', driverId: id });
     res.json({ success: true, message: "تم حذف السائق بنجاح" });
   } catch (error) {
     console.error("خطأ في حذف السائق:", error);
@@ -3499,19 +3551,27 @@ router.get("/security/logs", async (req, res) => {
       .from(auditLogs)
       .where(sql`${auditLogs.entityType} = 'auth'`)
       .orderBy(desc(auditLogs.createdAt))
-      .limit(limit);
+      .limit(limit)
+      .catch((err) => {
+        console.warn("⚠️ Could not query audit_logs for security logs:", err?.message || err);
+        return [];
+      });
 
-    const adminIds = [...new Set(logs.map(l => l.adminId))];
+    const adminIds = [...new Set(logs.map(l => l.adminId).filter(Boolean))];
     let adminMap: Record<string, string> = {};
     if (adminIds.length > 0) {
-      const admins = await db.select({ id: adminUsers.id, name: adminUsers.name }).from(adminUsers).where(inArray(adminUsers.id, adminIds));
-      admins.forEach(a => { adminMap[a.id] = a.name; });
+      try {
+        const admins = await db.select({ id: adminUsers.id, name: adminUsers.name }).from(adminUsers).where(inArray(adminUsers.id, adminIds));
+        admins.forEach(a => { adminMap[a.id] = a.name; });
+      } catch {
+        // Safe fallback
+      }
     }
 
     const formatted = logs.map(log => ({
       id: log.id,
-      userId: log.adminId,
-      userName: adminMap[log.adminId] || 'مدير النظام',
+      userId: log.adminId || '',
+      userName: (log.adminId && adminMap[log.adminId]) ? adminMap[log.adminId] : 'مدير النظام',
       action: log.action === 'login' ? 'تسجيل الدخول' : log.action === 'logout' ? 'تسجيل الخروج' : log.action === 'password_change' ? 'تغيير كلمة المرور' : log.action,
       ipAddress: log.ipAddress || '127.0.0.1',
       device: log.oldData ? (() => { try { return JSON.parse(log.oldData)?.device || 'متصفح الويب'; } catch { return 'متصفح الويب'; } })() : 'متصفح الويب',
@@ -3522,7 +3582,8 @@ router.get("/security/logs", async (req, res) => {
 
     res.json(formatted);
   } catch (error) {
-    res.status(500).json({ error: "خطأ في الخادم" });
+    console.error("Error in security/logs endpoint:", error);
+    res.json([]);
   }
 });
 
@@ -3593,6 +3654,134 @@ router.get("/supervisor-activity-reports", async (req, res) => {
   } catch (error) {
     console.error("Error fetching supervisor activity reports:", error);
     res.status(500).json({ error: "فشل جلب تقارير نشاط المشرفين" });
+  }
+});
+
+// ==========================================
+// 🤖 مسارات إدارة بوت الواتساب للسيرفر (WhatsApp Bot Gateway)
+// ==========================================
+
+// جلب حالة بوت الواتساب الحالية
+router.get("/whatsapp-bot/status", async (req, res) => {
+  try {
+    const status = whatsAppBotGateway.getStatus();
+    res.json(status);
+  } catch (error: any) {
+    console.error("Error getting whatsapp bot status:", error);
+    res.status(500).json({ error: error?.message || "فشل جلب حالة بوت الواتساب" });
+  }
+});
+
+// توليد رمز QR جديد لربط الحساب
+router.post("/whatsapp-bot/generate-qr", async (req, res) => {
+  try {
+    const result = await whatsAppBotGateway.generateQrSession();
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("Error generating whatsapp QR:", error);
+    res.status(500).json({ error: error?.message || "فشل توليد رمز QR" });
+  }
+});
+
+// تأكيد الربط برقم الهاتف (بعد مسح الرمز أو الربط اليدوي)
+router.post("/whatsapp-bot/confirm-connection", async (req, res) => {
+  try {
+    const { phoneNumber, pushName } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ error: "رقم الهاتف مطلوب" });
+    }
+    const session = await whatsAppBotGateway.confirmConnection(phoneNumber, pushName);
+    res.json({ success: true, session });
+  } catch (error: any) {
+    console.error("Error confirming whatsapp bot connection:", error);
+    res.status(500).json({ error: error?.message || "فشل تأكيد الربط" });
+  }
+});
+
+// فصل الحساب وقطع الاتصال
+router.post("/whatsapp-bot/disconnect", async (req, res) => {
+  try {
+    await whatsAppBotGateway.disconnect();
+    res.json({ success: true, message: "تم فصل جلسة الواتساب بنجاح" });
+  } catch (error: any) {
+    console.error("Error disconnecting whatsapp bot:", error);
+    res.status(500).json({ error: error?.message || "فشل فصل الجلسة" });
+  }
+});
+
+// إرسال رسالة تجريبية
+router.post("/whatsapp-bot/send-test", async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: "رقم المستلم مطلوب" });
+    }
+    const msgText = message || "مرحباً! هذه رسالة تجريبية من بوت الواتساب الخاص بتطبيق سريع ون 🚀";
+    const result = await whatsAppBotGateway.sendMessage({
+      to: phone,
+      message: msgText,
+      type: "test"
+    });
+    res.json(result);
+  } catch (error: any) {
+    console.error("Error sending test whatsapp message:", error);
+    res.status(500).json({ error: error?.message || "فشل إرسال الرسالة التجريبية" });
+  }
+});
+
+// جلب سجل الرسائل المرسلة
+router.get("/whatsapp-bot/logs", async (req, res) => {
+  try {
+    const logs = whatsAppBotGateway.getLogs();
+    res.json(logs);
+  } catch (error: any) {
+    console.error("Error fetching whatsapp bot logs:", error);
+    res.status(500).json({ error: error?.message || "فشل جلب السجلات" });
+  }
+});
+
+// جلب إعدادات Meta WhatsApp Cloud API الرسمية
+router.get("/whatsapp-config", async (req, res) => {
+  try {
+    const accessToken = await storage.getUiSetting("whatsapp_access_token");
+    const phoneNumberId = await storage.getUiSetting("whatsapp_phone_number_id");
+    const senderNumber = await storage.getUiSetting("otp_whatsapp_number");
+    const templateName = await storage.getUiSetting("whatsapp_template_name");
+
+    res.json({
+      accessToken: accessToken?.value || "",
+      phoneNumberId: phoneNumberId?.value || "",
+      senderNumber: senderNumber?.value || "967777146387",
+      templateName: templateName?.value || "",
+    });
+  } catch (error: any) {
+    console.error("Error fetching whatsapp config:", error);
+    res.status(500).json({ error: "فشل جلب إعدادات الواتساب" });
+  }
+});
+
+// حفظ وتحديث إعدادات Meta WhatsApp Cloud API الرسمية
+router.post("/whatsapp-config", async (req, res) => {
+  try {
+    const { accessToken, phoneNumberId, senderNumber, templateName } = req.body;
+
+    if (accessToken !== undefined) {
+      await storage.setUiSetting("whatsapp_access_token", accessToken.trim());
+    }
+    if (phoneNumberId !== undefined) {
+      await storage.setUiSetting("whatsapp_phone_number_id", phoneNumberId.trim());
+    }
+    if (senderNumber !== undefined) {
+      await storage.setUiSetting("otp_whatsapp_number", senderNumber.trim());
+    }
+    if (templateName !== undefined) {
+      await storage.setUiSetting("whatsapp_template_name", templateName.trim());
+    }
+
+    res.json({ success: true, message: "تم حفظ إعدادات الواتساب بنجاح" });
+  } catch (error: any) {
+    console.error("Error updating whatsapp config:", error);
+    res.status(500).json({ error: "فشل حفظ إعدادات الواتساب" });
   }
 });
 

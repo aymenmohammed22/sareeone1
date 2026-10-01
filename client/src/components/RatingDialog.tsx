@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Star, Truck, Utensils } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/context/AuthContext';
 
@@ -24,6 +24,7 @@ export default function RatingDialog({ isOpen, onClose, orderId, restaurantName,
   const [driverComment, setDriverComment] = useState('');
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -42,6 +43,9 @@ export default function RatingDialog({ isOpen, onClose, orderId, restaurantName,
         title: "شكراً لتقييمك!",
         description: "تم استلام تقييمك بنجاح.",
       });
+      queryClient.invalidateQueries({ queryKey: ['/api/restaurants'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/customer/orders'] });
       onClose();
     },
     onError: (error: Error) => {

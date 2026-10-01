@@ -424,7 +424,8 @@ export default function CustomerAuthPage() {
                     variant="outline"
                     onClick={() => {
                       localStorage.setItem('is_guest', 'true');
-                      window.location.reload();
+                      window.dispatchEvent(new Event('storage'));
+                      setLocation('/');
                     }}
                     className="w-full h-14 rounded-xl font-black text-xl border-2 hover:bg-gray-50 transition-all active:scale-95"
                   >

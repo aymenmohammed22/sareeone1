@@ -17,6 +17,52 @@ interface UserConnection {
   isAlive: boolean;
 }
 
+export function checkIsUserOnline(
+  userIdOrPhone: string | undefined | null,
+  userType: string | undefined | null,
+  clients: Map<string, UserConnection>,
+  userConnections: Map<string, WebSocket[]>
+): boolean {
+  if (!userIdOrPhone) return false;
+  const rawTarget = String(userIdOrPhone).trim();
+  if (!rawTarget) return false;
+  const targetDigits = rawTarget.replace(/\D/g, '');
+
+  // 1. Direct check in userConnections map
+  const keysToCheck = [
+    rawTarget,
+    `driver_${rawTarget}`,
+    ...(targetDigits ? [targetDigits, `driver_${targetDigits}`] : [])
+  ];
+
+  for (const k of keysToCheck) {
+    const list = userConnections.get(k);
+    if (list && list.some(w => w.readyState === WebSocket.OPEN)) {
+      return true;
+    }
+  }
+
+  // 2. Iterate clients
+  for (const conn of clients.values()) {
+    if (!conn.ws || conn.ws.readyState !== WebSocket.OPEN) continue;
+    if (userType && conn.userType && conn.userType !== userType) continue;
+
+    const connUserId = String(conn.userId || '').trim();
+    const connDigits = connUserId.replace(/\D/g, '');
+
+    if (connUserId === rawTarget) return true;
+    if (conn.connectionKey === rawTarget || conn.connectionKey === `driver_${rawTarget}`) return true;
+
+    if (targetDigits.length >= 7 && connDigits.length >= 7) {
+      if (targetDigits === connDigits || targetDigits.endsWith(connDigits.slice(-7)) || connDigits.endsWith(targetDigits.slice(-7))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function setupWebSockets(server: Server) {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -80,6 +126,24 @@ export function setupWebSockets(server: Server) {
         }
       }
 
+      // إعلام الأطراف المعنية بانقطاع اتصال المستخدم (حالة مغلق)
+      toDelete.forEach(id => {
+        const parts = id.split('_');
+        const uid = parts[0];
+        if (uid) {
+          const isStillOnline = checkIsUserOnline(uid, undefined, clients, userConnections);
+          if (!isStillOnline) {
+            const offlineMsg = JSON.stringify({
+              type: "presence_change",
+              payload: { userId: uid, isOnline: false }
+            });
+            wss.clients.forEach(c => {
+              if (c.readyState === WebSocket.OPEN) c.send(offlineMsg);
+            });
+          }
+        }
+      });
+
       // تنظيف orderTrackers إن وجد
       if (closedOrderId) {
         const trackers = orderTrackers.get(closedOrderId) || [];
@@ -94,6 +158,9 @@ export function setupWebSockets(server: Server) {
   });
 
   return {
+    isUserOnline: (userIdOrPhone: string, userType?: string): boolean => {
+      return checkIsUserOnline(userIdOrPhone, userType, clients, userConnections);
+    },
     broadcast: (type: string, payload: any) => {
       const message = JSON.stringify({ type, payload });
       wss.clients.forEach((client) => {
@@ -197,7 +264,7 @@ async function handleMessage(
   switch (message.type) {
     case "auth":
       if (message.payload.userId) {
-        const userId = message.payload.userId;
+        const userId = String(message.payload.userId).trim();
         const userType = message.payload.userType || 'customer';
         
         // Use consistent prefixing
@@ -216,6 +283,65 @@ async function handleMessage(
         userConnections.set(connectionKey, connections);
         
         log(`User ${userId} (${userType}) authenticated via WS with key ${connectionKey}`);
+
+        // 1. تحديث الرسائل المعلقة لتصبح "مستلمة" طالما أن المستخدم دخل التطبيق
+        try {
+          if (typeof (storage as any).markMessagesAsDelivered === 'function') {
+            (storage as any).markMessagesAsDelivered(userId, userType).catch(() => {});
+          }
+        } catch (_) {}
+
+        // 2. إشعار جميع الأطراف المعنية بأن هذا المستخدم أصبح "متصل"
+        const presMsg = JSON.stringify({
+          type: "presence_change",
+          payload: { userId, userType, isOnline: true }
+        });
+        wss.clients.forEach(c => {
+          if (c.readyState === WebSocket.OPEN) c.send(presMsg);
+        });
+
+        // 3. إشعار بتم تسليم الرسائل المعلقة (لتحديث الصحين الغامقين لدى المرسل)
+        const delivMsg = JSON.stringify({
+          type: "messages_delivered",
+          payload: { recipientId: userId, recipientType: userType }
+        });
+        wss.clients.forEach(c => {
+          if (c.readyState === WebSocket.OPEN) c.send(delivMsg);
+        });
+      }
+      break;
+
+    case "open_chat":
+      if (message.payload?.orderId) {
+        const { orderId, userId, userType } = message.payload;
+        try {
+          if (typeof (storage as any).markOrderMessagesAsRead === 'function') {
+            (storage as any).markOrderMessagesAsRead(String(orderId), String(userType || 'customer'), String(userId || '')).catch(() => {});
+          }
+        } catch (_) {}
+
+        const readMsg = JSON.stringify({
+          type: "messages_read",
+          payload: { orderId: String(orderId), readerId: userId, readerType: userType, timestamp: Date.now() }
+        });
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(readMsg);
+          }
+        });
+      }
+      break;
+
+    case "check_presence":
+      if (message.payload?.targetId) {
+        const { targetId, targetType, requestId } = message.payload;
+        const isOnline = checkIsUserOnline(targetId, targetType, clients, userConnections);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "presence_result",
+            payload: { targetId, targetType, isOnline, requestId }
+          }));
+        }
       }
       break;
 

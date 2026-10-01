@@ -332,12 +332,23 @@ export default function WasalniPage() {
             </div>
           </div>
 
-          <Button
-            onClick={() => setLocation('/')}
-            className="w-full h-14 bg-gradient-to-r from-orange-500 to-red-500 text-white font-black text-lg rounded-2xl hover:opacity-90"
-          >
-            تأكيد الطلب والبحث عن مندوب
-          </Button>
+          <div className="space-y-2">
+            <Button
+              onClick={() => setLocation(`/orders/${submittedRequest.id}`)}
+              className="w-full h-14 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-base rounded-2xl hover:opacity-95 shadow-md flex items-center justify-center gap-2"
+            >
+              <MapPin className="h-5 w-5" />
+              تتبع السائق والطلب مباشرة على الخريطة
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => setLocation('/')}
+              className="w-full h-12 bg-white text-gray-700 font-bold text-sm rounded-2xl border-gray-200 hover:bg-gray-50"
+            >
+              العودة إلى الصفحة الرئيسية
+            </Button>
+          </div>
         </div>
       </div>
     );

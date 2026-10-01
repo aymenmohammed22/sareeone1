@@ -12,9 +12,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import DriverMapView from '@/components/maps/DriverMapView';
+import AlternativeMapRouteModal from '@/components/maps/AlternativeMapRouteModal';
 import { CallContactDialog } from '@/components/CallContactDialog';
 import { soundAlert } from '@/lib/soundAlert';
-import { openInGoogleMaps } from '@/lib/mapUtils';
+import { openInGoogleMaps, openAlternativeMap } from '@/lib/mapUtils';
 import {
   MapPin,
   Phone,
@@ -83,12 +84,22 @@ export default function OrderDetailsPage({ orderId, driverId, onBack }: OrderDet
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isAccepting, setIsAccepting] = useState(false);
+  const [alternativeMapData, setAlternativeMapData] = useState<{
+    lat?: string | number | null;
+    lng?: string | number | null;
+    address?: string | null;
+    name?: string;
+    phone?: string;
+    orderNumber?: string;
+    type?: 'customer' | 'restaurant';
+  } | null>(null);
   const [callDialog, setCallDialog] = useState<{
     isOpen: boolean;
     name: string;
     role: 'customer' | 'restaurant' | 'admin';
     phone: string;
     orderNumber?: string;
+    orderId?: string;
   }>({
     isOpen: false,
     name: '',
@@ -376,67 +387,24 @@ export default function OrderDetailsPage({ orderId, driverId, onBack }: OrderDet
                   <span className="font-bold text-gray-800">تتبع الموقع والمسار</span>
                 </div>
                 
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant="default" className="bg-green-600 hover:bg-green-700 gap-2">
-                      <Navigation className="h-4 w-4" />
-                      فتح الخريطة التفاعلية
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-[95vw] w-full h-[85vh] p-0 overflow-hidden">
-                    <DialogHeader className="p-4 border-b bg-white z-10">
-                      <DialogTitle className="text-right">تتبع مسار الطلب #{order.orderNumber || order.id.slice(-8)}</DialogTitle>
-                    </DialogHeader>
-                    <div className="relative h-full w-full">
-                      <DriverMapView 
-                        orders={[{
-                          id: order.id,
-                          orderNumber: order.orderNumber,
-                          customerName: order.customerName,
-                          customerPhone: order.customerPhone,
-                          deliveryAddress: order.deliveryAddress,
-                          customerLocationLat: order.customerLocationLat,
-                          customerLocationLng: order.customerLocationLng,
-                          restaurantLat: order.restaurantLatitude,
-                          restaurantLng: order.restaurantLongitude,
-                          restaurantAddress: order.restaurantAddress,
-                          restaurantName: order.restaurantName,
-                          status: order.status,
-                          totalAmount: order.totalAmount,
-                          isWasalni: !!order.isWasalni,
-                        }]}
-                        height="calc(85vh - 60px)"
-                        onNavigate={(o) => {
-                          const isPickupTarget = (o.status === 'ready' || o.status === 'assigned');
-                          if (isPickupTarget && (o.restaurantLat || o.restaurantAddress)) {
-                            openInGoogleMaps({
-                              lat: o.restaurantLat,
-                              lng: o.restaurantLng,
-                              address: o.restaurantAddress,
-                              label: o.restaurantName || 'موقع الاستلام',
-                              mode: 'navigate'
-                            });
-                          } else {
-                            openInGoogleMaps({
-                              lat: o.customerLocationLat,
-                              lng: o.customerLocationLng,
-                              address: o.deliveryAddress,
-                              label: o.customerName,
-                              mode: 'navigate'
-                            });
-                          }
-                        }}
-                        onCall={(phone) => setCallDialog({
-                          isOpen: true,
-                          name: order.customerName,
-                          role: 'customer',
-                          phone: phone || order.customerPhone,
-                          orderNumber: order.orderNumber
-                        })}
-                      />
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                <Button 
+                  variant="default" 
+                  className="bg-orange-600 hover:bg-orange-700 text-white font-bold gap-2 shadow-sm"
+                  onClick={() => {
+                    setAlternativeMapData({
+                      lat: order.customerLocationLat,
+                      lng: order.customerLocationLng,
+                      address: order.deliveryAddress,
+                      name: order.customerName,
+                      phone: order.customerPhone,
+                      orderNumber: order.orderNumber,
+                      type: 'customer'
+                    });
+                  }}
+                >
+                  <Navigation className="h-4 w-4" />
+                  فتح الخريطة التفاعلية والمسار
+                </Button>
               </div>
               
               <p className="text-xs text-gray-500">يمكنك رؤية موقع المطعم وموقع العميل والمسار المقترح لتوفير الوقت.</p>
@@ -488,50 +456,24 @@ export default function OrderDetailsPage({ orderId, driverId, onBack }: OrderDet
                   </span>
                 </div>
               )}
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2 border-green-600 text-green-700 hover:bg-green-50 font-bold"
-                  >
-                    <Navigation className="h-4 w-4 text-green-600" />
-                    تتبع موقع العميل عبر الخريطة (Leaflet البديلة)
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-[95vw] w-full h-[85vh] p-0 overflow-hidden">
-                  <DialogHeader className="p-4 border-b bg-white z-10">
-                    <DialogTitle className="text-right">موقع التوصيل للعميل: {order.customerName}</DialogTitle>
-                  </DialogHeader>
-                  <div className="relative h-full w-full">
-                    <DriverMapView 
-                      orders={[{
-                        id: order.id,
-                        orderNumber: order.orderNumber,
-                        customerName: order.customerName,
-                        customerPhone: order.customerPhone,
-                        deliveryAddress: order.deliveryAddress,
-                        customerLocationLat: order.customerLocationLat,
-                        customerLocationLng: order.customerLocationLng,
-                        restaurantLat: order.restaurantLatitude,
-                        restaurantLng: order.restaurantLongitude,
-                        restaurantAddress: order.restaurantAddress,
-                        restaurantName: order.restaurantName,
-                        status: order.status,
-                        totalAmount: order.totalAmount,
-                        isWasalni: !!order.isWasalni,
-                      }]}
-                      height="calc(85vh - 60px)"
-                      onCall={(phone) => setCallDialog({
-                        isOpen: true,
-                        name: order.customerName,
-                        role: 'customer',
-                        phone: phone || order.customerPhone,
-                        orderNumber: order.orderNumber
-                      })}
-                    />
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-orange-600 text-orange-700 hover:bg-orange-50 font-bold"
+                onClick={() => {
+                  setAlternativeMapData({
+                    lat: order.customerLocationLat,
+                    lng: order.customerLocationLng,
+                    address: order.deliveryAddress,
+                    name: order.customerName,
+                    phone: order.customerPhone,
+                    orderNumber: order.orderNumber,
+                    type: 'customer'
+                  });
+                }}
+              >
+                <Navigation className="h-4 w-4 text-orange-600" />
+                تتبع موقع العميل عبر الخريطة (Leaflet البديلة)
+              </Button>
             </div>
 
             {order.notes && (
@@ -755,18 +697,20 @@ export default function OrderDetailsPage({ orderId, driverId, onBack }: OrderDet
             <Button
               variant="outline"
               onClick={() => {
-                openInGoogleMaps({
+                setAlternativeMapData({
                   lat: order.customerLocationLat,
                   lng: order.customerLocationLng,
                   address: order.deliveryAddress,
-                  label: order.customerName,
-                  mode: 'navigate'
+                  name: order.customerName,
+                  phone: order.customerPhone,
+                  orderNumber: order.orderNumber,
+                  type: 'customer'
                 });
               }}
-              className="w-full h-12 gap-2 text-base font-bold border-green-600 text-green-700 hover:bg-green-50"
+              className="w-full h-12 gap-2 text-base font-bold border-orange-600 text-orange-700 hover:bg-orange-50"
             >
-              <Navigation className="h-5 w-5 text-green-600" />
-              تتبع عنوان العميل على خرائط Google
+              <Navigation className="h-5 w-5 text-orange-600" />
+              تتبع عنوان ومسار العميل (نظام بديل)
             </Button>
           )}
 
@@ -777,7 +721,8 @@ export default function OrderDetailsPage({ orderId, driverId, onBack }: OrderDet
               name: order.customerName,
               role: 'customer',
               phone: order.customerPhone,
-              orderNumber: order.orderNumber
+              orderNumber: order.orderNumber,
+              orderId: order.id,
             })}
             className="w-full h-12 gap-2 text-lg text-emerald-700 border-emerald-300 hover:bg-emerald-50 font-bold"
           >
@@ -795,7 +740,23 @@ export default function OrderDetailsPage({ orderId, driverId, onBack }: OrderDet
         contactRole={callDialog.role}
         phoneNumber={callDialog.phone}
         orderNumber={callDialog.orderNumber}
+        orderId={callDialog.orderId}
       />
+
+      {/* نافذة الخرائط البديلة التفاعلية بنظام Leaflet والأسهم الإرشادية */}
+      {alternativeMapData && (
+        <AlternativeMapRouteModal
+          isOpen={!!alternativeMapData}
+          onClose={() => setAlternativeMapData(null)}
+          destinationLat={alternativeMapData.lat}
+          destinationLng={alternativeMapData.lng}
+          destinationAddress={alternativeMapData.address}
+          destinationName={alternativeMapData.name}
+          destinationType={alternativeMapData.type || 'customer'}
+          destinationPhone={alternativeMapData.phone}
+          orderNumber={alternativeMapData.orderNumber}
+        />
+      )}
     </div>
   );
 }

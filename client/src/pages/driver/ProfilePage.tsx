@@ -7,8 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { User, Phone, Truck, LogOut, Save, Settings, Lock, Coins, KeyRound, Eye, EyeOff, Check } from 'lucide-react';
+import { User, Phone, Truck, LogOut, Save, Settings, Lock, Coins, KeyRound, Eye, EyeOff, Check, Share2 } from 'lucide-react';
 import { safeTriggerPhoneCall } from '@/lib/callUtils';
+import ShareDriverAppModal from '@/components/ShareDriverAppModal';
 
 interface Driver {
   id: string;
@@ -19,6 +20,8 @@ interface Driver {
   vehicleNumber?: string;
   isAvailable: boolean;
   allowProfileEdit?: boolean;
+  allowVehicleEdit?: boolean;
+  canViewProfile?: boolean;
   paymentMode?: 'commission' | 'salary';
   commissionRate?: number;
   salaryAmount?: number;
@@ -38,6 +41,7 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -52,6 +56,8 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
     vehicleNumber: '',
     isAvailable: false,
     allowProfileEdit: true,
+    allowVehicleEdit: true,
+    canViewProfile: true,
     paymentMode: 'commission',
     commissionRate: 70,
     salaryAmount: 0,
@@ -92,6 +98,8 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
       vehicleNumber: driver.vehicleNumber || '',
       isAvailable: driver.isAvailable || false,
       allowProfileEdit: driver.allowProfileEdit !== false,
+      allowVehicleEdit: driver.allowVehicleEdit !== false,
+      canViewProfile: driver.canViewProfile !== false,
       paymentMode: driver.paymentMode || 'commission',
       commissionRate: driver.commissionRate || 70,
       salaryAmount: parseFloat(driver.salaryAmount || '0'),
@@ -101,7 +109,8 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
     });
   }, [serverProfile]);
 
-  const canEdit = formData.allowProfileEdit !== false;
+  const canEditProfile = formData.allowProfileEdit !== false;
+  const canEditVehicle = formData.allowVehicleEdit !== false;
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: Partial<Driver>) => {
@@ -343,7 +352,7 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
         <Card className="mb-4">
           <CardHeader className="flex flex-row justify-between items-center">
             <div className="flex items-center gap-2">
-              {canEdit ? (
+              {canEditProfile ? (
                 <Button
                   variant={isEditing ? 'default' : 'outline'}
                   size="sm"
@@ -364,7 +373,7 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-right">
-            {!canEdit && (
+            {!canEditProfile && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 text-right">
                 تعديل الملف الشخصي موقوف حالياً من قبل الإدارة. تواصل مع الإدارة لإجراء التعديلات.
               </div>
@@ -374,7 +383,7 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
               <Input
                 value={formData.name || ''}
                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                disabled={!isEditing || !canEdit}
+                disabled={!isEditing || !canEditProfile}
                 placeholder="اسم السائق"
                 className="text-right"
               />
@@ -386,7 +395,7 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
                 type="email"
                 value={formData.email || ''}
                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                disabled={!isEditing || !canEdit}
+                disabled={!isEditing || !canEditProfile}
                 placeholder="البريد الإلكتروني"
                 className="text-right"
               />
@@ -409,14 +418,14 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
                   type="tel"
                   value={formData.phone || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                  disabled={!isEditing || !canEdit}
+                  disabled={!isEditing || !canEditProfile}
                   placeholder="رقم الهاتف"
                   className="text-right flex-1"
                 />
               </div>
             </div>
 
-            {isEditing && canEdit && (
+            {isEditing && canEditProfile && (
               <Button
                 onClick={() => updateProfileMutation.mutate(formData)}
                 disabled={updateProfileMutation.isPending}
@@ -433,7 +442,7 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
         <Card className="mb-4">
           <CardHeader className="flex flex-row justify-between items-center">
             <div className="flex items-center gap-2">
-              {canEdit ? (
+              {canEditVehicle ? (
                 <Button
                   variant={isEditing ? 'default' : 'outline'}
                   size="sm"
@@ -454,12 +463,17 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-right">
+            {!canEditVehicle && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 text-right">
+                تعديل بيانات المركبة موقوف حالياً من قبل الإدارة.
+              </div>
+            )}
             <div>
               <Label className="mb-2 block">نوع المركبة</Label>
               <Input
                 value={isEditing ? (formData.vehicleType || '') : getVehicleLabel(formData.vehicleType)}
                 onChange={(e) => setFormData(prev => ({ ...prev, vehicleType: e.target.value }))}
-                disabled={!isEditing || !canEdit}
+                disabled={!isEditing || !canEditVehicle}
                 placeholder="دراجة نارية / سيارة / فان"
                 className="text-right"
               />
@@ -470,13 +484,13 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
               <Input
                 value={formData.vehicleNumber || ''}
                 onChange={(e) => setFormData(prev => ({ ...prev, vehicleNumber: e.target.value }))}
-                disabled={!isEditing || !canEdit}
+                disabled={!isEditing || !canEditVehicle}
                 placeholder="رقم اللوحة"
                 className="text-right"
               />
             </div>
 
-            {isEditing && canEdit && (
+            {isEditing && canEditVehicle && (
               <Button
                 onClick={() => updateProfileMutation.mutate({
                   vehicleType: formData.vehicleType,
@@ -566,6 +580,28 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
           )}
         </Card>
 
+        {/* Share Driver App Card */}
+        <Card className="mb-4 border-emerald-200 bg-emerald-50/60 shadow-xs">
+          <CardHeader className="flex flex-row justify-between items-center pb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsShareModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1.5 font-bold rounded-xl h-9"
+            >
+              <Share2 className="h-4 w-4" />
+              مشاركة الآن
+            </Button>
+            <CardTitle className="flex items-center gap-2 text-right text-base text-emerald-950 font-bold">
+              <Share2 className="h-5 w-5 text-emerald-600" />
+              مشاركة التطبيق مع السائقين
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-right text-xs text-emerald-800 leading-relaxed">
+            شارك رابط وبوابة الكباتن مع زملائك السائقين للانضمام واستلام الطلبات وزيادة أرباحهم بكل سهولة عبر واتساب أو رمز QR.
+          </CardContent>
+        </Card>
+
         {/* Logout Button */}
         <Card className="border-red-200 bg-red-50 border">
           <CardContent className="p-6">
@@ -578,6 +614,14 @@ export default function ProfilePage({ onLogout }: ProfilePageProps) {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Modal for sharing driver app */}
+        <ShareDriverAppModal
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+          driverName={formData.name || 'سائق'}
+          driverId={formData.id}
+        />
       </div>
     </div>
   );

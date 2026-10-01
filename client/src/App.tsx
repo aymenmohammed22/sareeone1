@@ -34,20 +34,48 @@ import SearchPage from "./pages/SearchPage";
 import NotFound from "@/pages/not-found";
 
 import SplashScreen from "./components/SplashScreen";
+import CitySelectionModal from "./components/CitySelectionModal";
 
 import { androidBridge } from "./lib/androidBridge";
 
 function MainApp() {
   useSettingsSync();
+  const { getSetting } = useUiSettings();
   const { location: userLocation } = useUserLocation();
   const [currentLocation, setLocation] = useWouterLocation();
-  const [showLocationModal, setShowLocationModal] = useState(true);
+  const [showLocationModal, setShowLocationModal] = useState(() => {
+    return localStorage.getItem('location_permission_granted') !== 'true';
+  });
   const [showSplash, setShowSplash] = useState(() => {
     return !sessionStorage.getItem('splash_seen');
   });
+  const [showCityModal, setShowCityModal] = useState(false);
   const [isGuest, setIsGuest] = useState(() => {
     return localStorage.getItem('is_guest') === 'true';
   });
+
+  const isCitySelectionEnabled = getSetting('enable_city_selection') === 'true';
+
+  // Trigger city selection modal ONLY on the first time if user has never selected a city
+  useEffect(() => {
+    if (!showSplash && isCitySelectionEnabled) {
+      const selectedCity = localStorage.getItem('selected_city_name');
+      const hasChosenEver = localStorage.getItem('city_chosen_first_time') === 'true';
+      
+      if (!selectedCity && !hasChosenEver) {
+        setShowCityModal(true);
+      }
+    }
+  }, [showSplash, isCitySelectionEnabled]);
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setIsGuest(localStorage.getItem('is_guest') === 'true');
+    };
+    window.addEventListener('storage', handleStorageChange);
+    handleStorageChange();
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [currentLocation]);
 
   const { isAuthenticated, user } = useAuth();
 
@@ -100,14 +128,18 @@ function MainApp() {
   const needsRedirectToAuth = !isAuthenticated && !isGuest && !isAuthPage && !isAdminRoute && !isDriverRoute;
 
   useEffect(() => {
+    // لا تقم بالتحويل أو التوجيه إلا بعد اكتمال شاشة الترحيب (Splash Screen) بالكامل
+    if (showSplash) return;
+
     if (needsRedirectToAuth) {
       setLocation('/auth');
     } else if (isAuthenticated && currentLocation === '/auth') {
       setLocation('/');
     }
-  }, [needsRedirectToAuth, isAuthenticated, currentLocation, setLocation]);
+  }, [showSplash, needsRedirectToAuth, isAuthenticated, isGuest, currentLocation, setLocation]);
 
-  if (showSplash && !isAdminRoute && !isDriverRoute && !isAuthPage) {
+  // عرض شاشة الترحيب (Splash Screen) حتى تكتمل كافة محتوياتها وعناصرها بالكامل
+  if (showSplash && !isAdminRoute && !isDriverRoute) {
     return <SplashScreen onFinish={handleSplashFinish} />;
   }
 
@@ -142,18 +174,25 @@ function MainApp() {
       </Layout>
       <FloatingCartNotification />
       
-      {showLocationModal && !userLocation.hasPermission && (
+      {showLocationModal && !userLocation.hasPermission && localStorage.getItem('location_permission_granted') !== 'true' && (
         <LocationPermissionModal
           onPermissionGranted={(position) => {
-            console.log('تم منح الإذن للموقع:', position);
+            localStorage.setItem('location_permission_granted', 'true');
             setShowLocationModal(false);
           }}
           onPermissionDenied={() => {
-            console.log('تم رفض الإذن للموقع');
+            sessionStorage.setItem('location_modal_dismissed', 'true');
             setShowLocationModal(false);
           }}
         />
       )}
+
+      {/* City Selection Modal for Customer App */}
+      <CitySelectionModal
+        isOpen={showCityModal}
+        onClose={() => setShowCityModal(false)}
+        allowDismiss={Boolean(localStorage.getItem('selected_city_name'))}
+      />
     </>
   );
 }
@@ -205,6 +244,7 @@ function Router() {
 }
 
 import { LanguageProvider } from "./context/LanguageContext";
+import GlobalAlternativeMapModal from "./components/maps/GlobalAlternativeMapModal";
 
 function App() {
   return (
@@ -218,6 +258,7 @@ function App() {
                   <CartProvider>
                     <NotificationProvider>
                       <Toaster />
+                      <GlobalAlternativeMapModal />
                       <MainApp />
                     </NotificationProvider>
                   </CartProvider>

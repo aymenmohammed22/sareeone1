@@ -118,11 +118,11 @@ export default function MenuItemCard({
   return (
     <div 
       id={item.isBannerOffer ? `offer-${item.id}` : `product-${item.id}`}
-      className="group relative bg-white cursor-pointer border border-slate-200/80 rounded-2xl overflow-hidden hover:shadow-xl hover:border-primary/40 transition-all duration-300 flex flex-col justify-between h-full shadow-sm hover:-translate-y-1" 
+      className="group relative bg-white cursor-pointer border border-orange-100/70 rounded-2xl overflow-hidden hover:shadow-[0_10px_24px_rgba(255,87,34,0.12)] hover:border-primary/30 transition-all duration-300 flex flex-col justify-between h-full shadow-[0_4px_16px_rgba(0,0,0,0.04)] hover:-translate-y-1" 
       onClick={handleClick}
     >
       {/* Product Image Container */}
-      <div className="relative aspect-[4/3] sm:aspect-square overflow-hidden bg-slate-50 w-full">
+      <div className="relative aspect-[4/3] sm:aspect-square overflow-hidden bg-orange-50/40 w-full">
         <img
           src={item.image || '/placeholder-food.png'}
           alt={item.name}
@@ -138,7 +138,7 @@ export default function MenuItemCard({
             </Badge>
           )}
           {item.isFeatured && (
-            <Badge className="bg-[#F05215] text-white border-none rounded-lg text-[10px] sm:text-xs px-2 py-0.5 font-black shadow-sm">
+            <Badge className="bg-[#FF5722] text-white border-none rounded-lg text-[10px] sm:text-xs px-2 py-0.5 font-black shadow-sm">
               مميز
             </Badge>
           )}
@@ -152,12 +152,12 @@ export default function MenuItemCard({
         {/* Favorite Icon */}
         {!item.isBannerOffer && (
           <button 
-            className="absolute top-2 left-2 p-2 bg-white/90 hover:bg-white text-gray-400 rounded-full transition-all shadow-md z-10 active:scale-90"
+            className="absolute top-2 left-2 p-2 bg-white/95 hover:bg-white text-gray-400 rounded-full transition-all shadow-sm z-10 active:scale-90"
             onClick={handleToggleFavorite}
             disabled={toggleFavorite.isPending}
             aria-label="المفضلة"
           >
-            <Heart className={`h-4 w-4 ${isItemFavorite ? 'text-red-600 fill-current' : 'text-gray-400 hover:text-red-500'}`} />
+            <Heart className={`h-4 w-4 ${isItemFavorite ? 'text-[#FF5722] fill-[#FF5722]' : 'text-gray-400 hover:text-[#FF5722]'}`} />
           </button>
         )}
 
@@ -187,7 +187,7 @@ export default function MenuItemCard({
         <div className="space-y-2">
           {/* Rating & Sales */}
           <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1 text-amber-400 bg-amber-50 px-2 py-0.5 rounded-md">
+            <div className="flex items-center gap-1 text-amber-500 bg-amber-50 px-2 py-0.5 rounded-lg font-bold">
               <Star className="h-3 w-3 fill-current" />
               <span className="text-[10px] sm:text-xs font-black text-amber-800">{item.rating || '4.8'}</span>
             </div>
@@ -199,10 +199,10 @@ export default function MenuItemCard({
           </div>
 
           {/* Price & Add to Cart Button */}
-          <div className="flex items-center justify-between pt-1 border-t border-slate-100 gap-2">
+          <div className="flex items-center justify-between pt-2 border-t border-orange-50 gap-2">
             <div className="flex flex-col">
               <div className="flex items-baseline gap-1">
-                <span className="text-sm sm:text-base md:text-lg font-black text-[#E03A0E]">
+                <span className="text-sm sm:text-base md:text-lg font-black text-[#FF5722]">
                   {item.price}
                 </span>
                 <span className="text-[10px] sm:text-xs font-bold text-slate-500">ر.ي</span>
@@ -216,7 +216,7 @@ export default function MenuItemCard({
 
             <Button 
               size="sm"
-              className="h-8 sm:h-9 px-2.5 sm:px-3 bg-gradient-to-r from-[#F05215] to-[#E03A0E] hover:from-[#E04205] hover:to-[#C73208] text-white font-black text-xs rounded-xl shadow-sm hover:shadow-md transition-all flex items-center gap-1 active:scale-95 shrink-0"
+              className="h-8 sm:h-9 px-3 bg-gradient-to-r from-[#FF6E40] to-[#FF5722] hover:from-[#FF5722] hover:to-[#E64A19] text-white font-black text-xs rounded-xl shadow-sm hover:shadow-md transition-all flex items-center gap-1 active:scale-95 shrink-0"
               onClick={handleAddToCart}
               disabled={isOutOfStock || disabled}
               data-testid={`button-add-to-cart-${item.id}`}

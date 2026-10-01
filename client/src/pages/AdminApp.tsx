@@ -25,6 +25,8 @@ import AdminWasalniRequests from "./admin/AdminWasalniRequests";
 import AdminDriverTracking from "./admin/AdminDriverTracking";
 import AdminInvoiceDesign from "./admin/AdminInvoiceDesign";
 import AdminUserGuide from "./admin/AdminUserGuide";
+import AdminWhatsAppChat from "./admin/AdminWhatsAppChat";
+import AdminWhatsAppBot from "./admin/AdminWhatsAppBot";
 import AdminBusinessHours from "./AdminBusinessHours";
 import AdminSpecialOffers from "./AdminSpecialOffers";
 import AdminSettings from "./AdminSettings";
@@ -72,6 +74,10 @@ export const AdminApp: React.FC<AdminAppProps> = () => {
         <Route path="/admin/restaurant-accounts/:restaurantId/statement" component={RestaurantStatementPage} />
         <Route path="/admin/restaurant-sections" component={RestaurantSections} />
         <Route path="/admin/business-hours" component={AdminBusinessHours} />
+        <Route path="/admin/chat" component={AdminWhatsAppChat} />
+        <Route path="/admin/conversations" component={AdminWhatsAppChat} />
+        <Route path="/admin/whatsapp-bot" component={AdminWhatsAppBot} />
+        <Route path="/admin/whatsapp" component={AdminWhatsAppBot} />
         <Route path="/admin/notifications" component={AdminFlutterNotifications} />
         <Route path="/admin/wasalni" component={AdminWasalniRequests} />
         <Route path="/admin/invoice-design" component={AdminInvoiceDesign} />

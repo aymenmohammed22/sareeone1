@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { ArrowRight, Package, Clock, CheckCircle, XCircle, Eye, Loader, Star, Phone, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,19 +51,11 @@ interface OrderItem {
   restaurantName?: string;
 }
 
-const CANCEL_REASONS = [
-  'غيّرت رأيي',
-  'طلبت بالخطأ',
-  'تأخر وقت التوصيل',
-  'لا يوجد سائق متاح',
-  'مشكلة في الدفع',
-  'سبب آخر',
-];
-
 export default function OrdersPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { t, language } = useLanguage();
   const queryClient = useQueryClient();
   const [selectedTab, setSelectedTab] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
   const [showRatingDialog, setShowRatingDialog] = useState(false);
@@ -74,6 +67,24 @@ export default function OrdersPage() {
   const [cancelReason, setCancelReason] = useState('');
   const [customCancelReason, setCustomCancelReason] = useState('');
 
+  const CANCEL_REASONS = language === 'ar' ? [
+    'غيّرت رأيي',
+    'طلبت بالخطأ',
+    'تأخر وقت التوصيل',
+    'لا يوجد سائق متاح',
+    'مشكلة في الدفع',
+    'سبب آخر',
+  ] : [
+    'Changed my mind',
+    'Ordered by mistake',
+    'Delivery taking too long',
+    'No driver available',
+    'Payment issue',
+    'Other reason',
+  ];
+
+  const otherReasonKey = language === 'ar' ? 'سبب آخر' : 'Other reason';
+
   const customerPhone = user?.phone || localStorage.getItem('customer_phone');
   const customerId = user?.id || '';
 
@@ -81,13 +92,10 @@ export default function OrdersPage() {
     queryKey: ['orders', customerPhone, customerId],
     enabled: !!(customerPhone || customerId),
     queryFn: async () => {
-      // بناء معاملات الاستعلام بشكل آمن حتى لو كان رقم الهاتف فارغاً
       const params = new URLSearchParams();
       if (customerId) params.set('customerId', customerId);
       const queryStr = params.toString() ? `?${params.toString()}` : '';
 
-      // إذا كان رقم الهاتف فارغاً نستخدم معرّف الحساب مباشرةً كمسار بديل
-      // لضمان تطابق نمط المسار /customer/:phone في Express
       const phoneSegment = customerPhone
         ? encodeURIComponent(customerPhone)
         : (customerId ? `id:${encodeURIComponent(customerId)}` : '');
@@ -97,7 +105,7 @@ export default function OrdersPage() {
         fetch(`/api/wasalni?phone=${encodeURIComponent(customerPhone || '')}`),
       ]);
       if (!ordersRes.ok) {
-        throw new Error('فشل في جلب الطلبات');
+        throw new Error(language === 'ar' ? 'فشل في جلب الطلبات' : 'Failed to fetch orders');
       }
       const data: Order[] = await ordersRes.json();
 
@@ -106,14 +114,14 @@ export default function OrdersPage() {
         try {
           parsedItems = typeof order.items === 'string' ? JSON.parse(order.items) : (order.items as any);
         } catch (e) {
-          console.error('خطأ في تحليل عناصر الطلب:', e);
+          console.error('Error parsing order items:', e);
         }
 
         let restaurantName = order.restaurantName;
         if (!restaurantName && parsedItems.length > 0 && parsedItems[0].restaurantName) {
           restaurantName = parsedItems[0].restaurantName;
         } else if (!restaurantName) {
-          restaurantName = 'المتجر الرئيسي';
+          restaurantName = language === 'ar' ? 'المتجر الرئيسي' : 'Main Store';
         }
 
         return { ...order, restaurantName, parsedItems };
@@ -124,8 +132,6 @@ export default function OrdersPage() {
       if (wasalniRes.ok) {
         try {
           const wasalniData: any[] = await wasalniRes.json();
-          // الخادم يقوم بالفعل بفلترة الطلبات حسب الهاتف بطريقة مُطبَّعة
-          // (إزالة المسافات + trim)، لذلك لا حاجة لفلترة صارمة هنا قد تخفي طلبات صحيحة
           wasalniOrders = (wasalniData || [])
             .map((w) => ({
               id: w.id,
@@ -141,19 +147,19 @@ export default function OrdersPage() {
               total: w.estimatedFee || '0',
               totalAmount: w.estimatedFee || '0',
               restaurantId: '',
-              restaurantName: `وصل لي - ${w.orderType || 'توصيل'}`,
+              restaurantName: `${language === 'ar' ? 'وصل لي' : 'Wasalni'} - ${w.orderType || (language === 'ar' ? 'توصيل' : 'Delivery')}`,
               status: w.status,
               createdAt: w.createdAt,
               updatedAt: w.updatedAt,
               driverEarnings: '0',
               _isWasalni: true,
               parsedItems: [
-                { name: `من: ${w.fromAddress}`, quantity: 1, price: 0 },
-                { name: `إلى: ${w.toAddress}`, quantity: 1, price: 0 },
+                { name: `${language === 'ar' ? 'من' : 'From'}: ${w.fromAddress}`, quantity: 1, price: 0 },
+                { name: `${language === 'ar' ? 'إلى' : 'To'}: ${w.toAddress}`, quantity: 1, price: 0 },
               ],
             } as Order));
         } catch (e) {
-          console.error('خطأ في تحميل طلبات وصل لي:', e);
+          console.error('Error loading Wasalni orders:', e);
         }
       }
 
@@ -167,7 +173,7 @@ export default function OrdersPage() {
     retry: 1
   });
 
-  // اشتراك WebSocket لتلقي تحديثات الطلبات الفورية من السائق والإدارة
+  // اشتراك WebSocket
   useEffect(() => {
     if (!customerPhone) return;
     let ws: WebSocket | null = null;
@@ -181,8 +187,6 @@ export default function OrdersPage() {
         ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
         ws.onopen = () => {
-          // إرسال auth بكلا المعرّفين (customerId والهاتف) لضمان وصول إشعارات
-          // الطلبات بصرف النظر عن المعرّف الذي خزّنه الخادم في recipientId
           const customerId = user?.id;
           if (customerId) {
             ws?.send(JSON.stringify({
@@ -207,7 +211,6 @@ export default function OrdersPage() {
               message.type === 'new_wasalni_request' ||
               message.type === 'driver_assigned'
             ) {
-              // استخدام المفتاح الكامل لضمان إلغاء الكاش الصحيح
               queryClient.invalidateQueries({ queryKey: ['orders', customerPhone, customerId] });
             }
           } catch (err) {
@@ -234,7 +237,7 @@ export default function OrdersPage() {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       try { ws?.close(); } catch {}
     };
-  }, [customerPhone, queryClient]);
+  }, [customerPhone, customerId, user?.id, queryClient]);
 
   // طلب الإلغاء
   const cancelOrderMutation = useMutation({
@@ -247,15 +250,15 @@ export default function OrdersPage() {
       });
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || 'فشل في إلغاء الطلب');
+        throw new Error(err.error || (language === 'ar' ? 'فشل في إلغاء الطلب' : 'Failed to cancel order'));
       }
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders', customerPhone] });
       toast({
-        title: "تم إلغاء الطلب",
-        description: "تم إلغاء طلبك بنجاح",
+        title: language === 'ar' ? "تم إلغاء الطلب" : "Order Cancelled",
+        description: language === 'ar' ? "تم إلغاء طلبك بنجاح" : "Your order has been cancelled successfully",
       });
       setShowCancelDialog(false);
       setCancellingOrder(null);
@@ -264,15 +267,15 @@ export default function OrdersPage() {
     },
     onError: (err: any) => {
       toast({
-        title: "خطأ في الإلغاء",
-        description: err.message || "حدث خطأ، يرجى المحاولة مرة أخرى",
+        title: language === 'ar' ? "خطأ في الإلغاء" : "Cancellation Error",
+        description: err.message || (language === 'ar' ? "حدث خطأ، يرجى المحاولة مرة أخرى" : "Error occurred, please try again"),
         variant: "destructive",
       });
     }
   });
 
   const getStatusLabel = (status: string) => {
-    const statusMap: Record<string, string> = {
+    const statusMapAr: Record<string, string> = {
       pending: 'قيد المراجعة',
       confirmed: 'مؤكد',
       preparing: 'قيد التحضير',
@@ -281,7 +284,16 @@ export default function OrdersPage() {
       cancelled: 'ملغي',
       scheduled: 'مجدول',
     };
-    return statusMap[status] || status;
+    const statusMapEn: Record<string, string> = {
+      pending: 'Pending',
+      confirmed: 'Confirmed',
+      preparing: 'Preparing',
+      on_way: 'On the way',
+      delivered: 'Delivered',
+      cancelled: 'Cancelled',
+      scheduled: 'Scheduled',
+    };
+    return (language === 'ar' ? statusMapAr[status] : statusMapEn[status]) || status;
   };
 
   const getStatusColor = (status: string) => {
@@ -310,7 +322,6 @@ export default function OrdersPage() {
     return iconMap[status] || Clock;
   };
 
-  // هل يمكن إلغاء الطلب؟ فقط في حالات معينة
   const canCancelOrder = (status: string) => {
     return ['pending', 'confirmed', 'preparing', 'scheduled'].includes(status);
   };
@@ -336,8 +347,8 @@ export default function OrdersPage() {
 
   const handleReorder = (order: Order) => {
     toast({
-      title: "جاري إعادة الطلب",
-      description: `سيتم إضافة عناصر طلب ${order.orderNumber} إلى السلة`,
+      title: language === 'ar' ? "جاري إعادة الطلب" : "Reordering",
+      description: language === 'ar' ? `سيتم إضافة عناصر طلب ${order.orderNumber} إلى السلة` : `Items from order ${order.orderNumber} are being added`,
     });
   };
 
@@ -350,27 +361,30 @@ export default function OrdersPage() {
 
   const handleConfirmCancel = () => {
     if (!cancellingOrder) return;
-    const finalReason = cancelReason === 'سبب آخر' ? customCancelReason.trim() : cancelReason;
+    const finalReason = cancelReason === otherReasonKey ? customCancelReason.trim() : cancelReason;
     if (!finalReason) {
-      toast({ title: "الرجاء اختيار سبب الإلغاء", variant: "destructive" });
+      toast({ 
+        title: language === 'ar' ? "الرجاء اختيار سبب الإلغاء" : "Please choose a reason for cancellation", 
+        variant: "destructive" 
+      });
       return;
     }
     cancelOrderMutation.mutate({ orderId: cancellingOrder.id, reason: finalReason, isWasalni: cancellingOrder._isWasalni });
   };
 
   const tabs = [
-    { id: 'all', label: 'جميع الطلبات', count: displayOrders.length },
-    { id: 'active', label: 'النشطة', count: displayOrders.filter(o => ['pending', 'confirmed', 'preparing', 'on_way', 'scheduled'].includes(o.status)).length },
-    { id: 'completed', label: 'المكتملة', count: displayOrders.filter(o => o.status === 'delivered').length },
-    { id: 'cancelled', label: 'الملغية', count: displayOrders.filter(o => o.status === 'cancelled').length }
+    { id: 'all', label: language === 'ar' ? 'جميع الطلبات' : 'All Orders', count: displayOrders.length },
+    { id: 'active', label: language === 'ar' ? 'النشطة' : 'Active', count: displayOrders.filter(o => ['pending', 'confirmed', 'preparing', 'on_way', 'scheduled'].includes(o.status)).length },
+    { id: 'completed', label: language === 'ar' ? 'المكتملة' : 'Completed', count: displayOrders.filter(o => o.status === 'delivered').length },
+    { id: 'cancelled', label: language === 'ar' ? 'الملغية' : 'Cancelled', count: displayOrders.filter(o => o.status === 'cancelled').length }
   ];
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader className="h-8 w-8 animate-spin mx-auto mb-4 text-red-500" />
-          <p className="text-gray-600">جاري تحميل طلباتك...</p>
+          <Loader className="h-8 w-8 animate-spin mx-auto mb-4 text-[#FF5722]" />
+          <p className="text-gray-600">{t('loading')}</p>
         </div>
       </div>
     );
@@ -381,9 +395,9 @@ export default function OrdersPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <XCircle className="h-8 w-8 mx-auto mb-4 text-red-500" />
-          <p className="text-red-600 mb-4">حدث خطأ في تحميل الطلبات</p>
-          <Button onClick={() => window.location.reload()} className="bg-red-500 hover:bg-red-600">
-            إعادة المحاولة
+          <p className="text-red-600 mb-4">{language === 'ar' ? 'حدث خطأ في تحميل الطلبات' : 'Error loading orders'}</p>
+          <Button onClick={() => window.location.reload()} className="bg-[#FF5722] hover:bg-[#E64A19] text-white">
+            {language === 'ar' ? 'إعادة المحاولة' : 'Try Again'}
           </Button>
         </div>
       </div>
@@ -391,41 +405,44 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50/70 pb-16">
       {/* رأس الصفحة */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-4 py-4">
+      <div className="bg-gradient-to-r from-[#FF6E40] via-[#FF5722] to-[#E64A19] text-white shadow-md rounded-b-[28px] sticky top-0 z-10">
+        <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
+              className="text-white hover:bg-white/20 rounded-2xl"
               onClick={() => setLocation('/')}
               data-testid="button-back"
             >
-              <ArrowRight className="h-5 w-5" />
+              <ArrowRight className={`h-5 w-5 ${language === 'en' ? 'rotate-180' : ''}`} />
             </Button>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">طلباتي</h1>
-              <p className="text-sm text-gray-500">تتبع ومراجعة طلباتك</p>
+              <h1 className="text-xl font-black text-white">{t('my_orders')}</h1>
+              <p className="text-xs text-orange-100 font-bold">
+                {language === 'ar' ? 'تتبع ومراجعة طلباتك السابقة والحالية' : 'Track and review your past and active orders'}
+              </p>
             </div>
           </div>
         </div>
       </div>
 
       {/* التبويبات */}
-      <div className="max-w-md mx-auto p-4">
+      <div className="max-w-2xl mx-auto p-4">
         <Tabs value={selectedTab} onValueChange={(value) => setSelectedTab(value as any)}>
-          <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-5 p-1 bg-white border border-orange-100/80 rounded-2xl shadow-xs">
             {tabs.map((tab) => (
               <TabsTrigger 
                 key={tab.id} 
                 value={tab.id}
-                className="text-xs relative"
+                className="text-xs font-black rounded-xl py-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#FF6E40] data-[state=active]:to-[#FF5722] data-[state=active]:text-white relative"
                 data-testid={`tab-${tab.id}`}
               >
                 {tab.label}
                 {tab.count > 0 && (
-                  <Badge variant="secondary" className="absolute -top-2 -right-2 h-5 w-5 rounded-full p-0 text-xs">
+                  <Badge variant="secondary" className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 rounded-full text-[10px] font-black bg-[#FF5722] text-white border border-white">
                     {tab.count}
                   </Badge>
                 )}
@@ -435,13 +452,21 @@ export default function OrdersPage() {
 
           <TabsContent value={selectedTab} className="space-y-4">
             {filteredOrders.length === 0 ? (
-              <Card>
+              <Card className="rounded-3xl border border-orange-100/80 shadow-[0_4px_16px_rgba(0,0,0,0.03)] overflow-hidden bg-white">
                 <CardContent className="text-center py-12">
-                  <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">لا توجد طلبات</h3>
-                  <p className="text-gray-500 mb-4">لم تقم بأي طلبات بعد</p>
-                  <Button onClick={() => setLocation('/')} data-testid="button-start-ordering">
-                    ابدأ الطلب الآن
+                  <div className="w-16 h-16 rounded-3xl bg-orange-50 border border-orange-100 flex items-center justify-center mx-auto mb-4 text-[#FF5722]">
+                    <Package className="h-8 w-8 text-[#FF5722]" />
+                  </div>
+                  <h3 className="text-base font-black text-slate-900 mb-1">{t('no_orders')}</h3>
+                  <p className="text-xs text-slate-400 font-bold mb-4">
+                    {language === 'ar' ? 'لم تقم بأي طلبات في هذا القسم بعد' : 'You have no orders in this category yet'}
+                  </p>
+                  <Button 
+                    onClick={() => setLocation('/')} 
+                    data-testid="button-start-ordering"
+                    className="bg-gradient-to-r from-[#FF6E40] to-[#FF5722] hover:from-[#FF5722] hover:to-[#E64A19] text-white font-black rounded-2xl px-6 py-2.5 shadow-md shadow-orange-500/20"
+                  >
+                    {t('start_ordering')}
                   </Button>
                 </CardContent>
               </Card>
@@ -450,67 +475,77 @@ export default function OrdersPage() {
                 const StatusIcon = getStatusIcon(order.status);
                 
                 return (
-                  <Card key={order.id} className="overflow-hidden">
-                    <CardHeader className="pb-3">
+                  <Card key={order.id} className="rounded-3xl border border-orange-100/70 shadow-[0_4px_16px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_20px_rgba(255,87,34,0.07)] transition-all overflow-hidden bg-white">
+                    <CardHeader className="pb-3 bg-orange-50/30 border-b border-orange-100/50">
                       <div className="flex items-center justify-between">
                         <div>
-                          <CardTitle className="text-lg font-bold">{order.restaurantName}</CardTitle>
-                          <p className="text-sm text-gray-500">طلب رقم: {order.orderNumber}</p>
+                          <CardTitle className="text-base font-black text-slate-900">{order.restaurantName || (language === 'ar' ? 'طلب سريع ون' : 'Saree One Order')}</CardTitle>
+                          <p className="text-xs text-slate-400 font-bold mt-0.5">
+                            {language === 'ar' ? 'طلب رقم:' : 'Order #:'} {order.orderNumber}
+                          </p>
                         </div>
                         <Badge 
-                          className={`${getStatusColor(order.status)} text-white`}
+                          className={`${getStatusColor(order.status)} text-white font-black text-xs px-2.5 py-1 rounded-xl shadow-xs`}
                           data-testid={`badge-status-${order.status}`}
                         >
-                          <StatusIcon className="w-3 h-3 mr-1" />
+                          <StatusIcon className={`w-3.5 h-3.5 ${language === 'ar' ? 'ml-1' : 'mr-1'}`} />
                           {getStatusLabel(order.status)}
                         </Badge>
                       </div>
                     </CardHeader>
                     
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-4 pt-4">
                       {/* عناصر الطلب */}
-                      <div className="space-y-2">
+                      <div className="space-y-2 bg-slate-50/80 p-3 rounded-2xl border border-slate-100">
                         {order.parsedItems?.map((item: OrderItem, index: number) => (
-                          <div key={index} className="flex justify-between text-sm">
+                          <div key={index} className="flex justify-between text-xs font-bold text-slate-700">
                             <span>{item.quantity}x {item.name}</span>
-                            <span className="font-medium">{formatCurrency(item.price)}</span>
+                            <span className="text-slate-900 font-black">{formatCurrency(item.price)}</span>
                           </div>
                         )) || (
-                          <div className="text-sm text-gray-500">لا توجد تفاصيل العناصر</div>
+                          <div className="text-xs text-slate-400 font-bold">
+                            {language === 'ar' ? 'لا توجد تفاصيل العناصر' : 'No items details'}
+                          </div>
                         )}
                       </div>
 
                       {/* ملخص الطلب */}
-                      <div className="border-t pt-3 space-y-2">
-                        <div className="flex justify-between text-sm text-gray-600">
-                          <span>عدد الأصناف: {order.parsedItems?.reduce((sum: number, item: OrderItem) => sum + item.quantity, 0) || 0}</span>
-                          <span>المجموع: {formatCurrency(order.totalAmount)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-500">
+                      <div className="pt-1 space-y-1.5">
+                        <div className="flex justify-between text-xs font-bold text-slate-600">
                           <span>
-                            تاريخ الطلب: {formatDate(order.createdAt)} - {new Date(order.createdAt).toLocaleTimeString('ar-YE', { hour: '2-digit', minute: '2-digit' })}
+                            {language === 'ar' ? 'عدد الأصناف:' : 'Items count:'} {order.parsedItems?.reduce((sum: number, item: OrderItem) => sum + item.quantity, 0) || 0}
+                          </span>
+                          <span className="text-[#FF5722] font-black text-sm">
+                            {language === 'ar' ? 'المجموع:' : 'Total:'} {formatCurrency(order.totalAmount)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-400 font-bold">
+                          <span>
+                            {language === 'ar' ? 'تاريخ الطلب:' : 'Date:'} {formatDate(order.createdAt)} - {new Date(order.createdAt).toLocaleTimeString(language === 'ar' ? 'ar-YE' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                           {order.estimatedTime && (
-                            <span>الوقت المتوقع: {order.estimatedTime}</span>
+                            <span className="text-[#FF5722]">
+                              {language === 'ar' ? 'الوقت المتوقع:' : 'Est. time:'} {order.estimatedTime}
+                            </span>
                           )}
                         </div>
-                        <div className="flex justify-between text-xs text-gray-500">
-                          <span>العنوان: {order.deliveryAddress}</span>
-                          <span>الدفع: {order.paymentMethod === 'cash' ? 'نقدي' : 'إلكتروني'}</span>
+                        <div className="flex justify-between text-[11px] text-slate-400 font-bold">
+                          <span>{t('delivery_address')}: {order.deliveryAddress}</span>
+                          <span>{t('payment_method')}: {order.paymentMethod === 'cash' ? t('cash_on_delivery') : t('online_payment')}</span>
                         </div>
                       </div>
 
                       {/* أزرار الإجراءات */}
-                      <div className="flex flex-wrap gap-2 pt-2">
+                      <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
                         <Button
                           variant="outline"
                           size="sm"
-                          className="flex-1"
+                          className="flex-1 rounded-xl font-black text-xs border-orange-200 hover:bg-orange-50 text-[#FF5722]"
                           onClick={() => handleViewOrder(order.id)}
                           data-testid={`button-view-order-${order.id}`}
                         >
-                          <Eye className="w-4 h-4 mr-1" />
-                          تتبع الطلب
+                          <Eye className={`w-3.5 h-3.5 ${language === 'ar' ? 'ml-1' : 'mr-1'}`} />
+                          {t('track_order')}
                         </Button>
 
                         {/* زر الإلغاء - يظهر للطلبات النشطة القابلة للإلغاء */}
@@ -518,12 +553,12 @@ export default function OrdersPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                            className="flex-1 rounded-xl font-black text-xs border-red-200 text-red-600 hover:bg-red-50"
                             onClick={() => openCancelDialog(order)}
                             data-testid={`button-cancel-order-${order.id}`}
                           >
-                            <X className="w-4 h-4 mr-1" />
-                            إلغاء الطلب
+                            <X className={`w-3.5 h-3.5 ${language === 'ar' ? 'ml-1' : 'mr-1'}`} />
+                            {language === 'ar' ? 'إلغاء الطلب' : 'Cancel Order'}
                           </Button>
                         )}
                         
@@ -531,11 +566,11 @@ export default function OrdersPage() {
                           <Button
                             variant="default"
                             size="sm"
-                            className="flex-1 bg-amber-500 hover:bg-amber-600"
+                            className="flex-1 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white shadow-xs"
                             onClick={() => handleRateOrder(order)}
                           >
-                            <Star className="w-4 h-4 mr-1" />
-                            تقييم
+                            <Star className={`w-3.5 h-3.5 fill-white ${language === 'ar' ? 'ml-1' : 'mr-1'}`} />
+                            {language === 'ar' ? 'تقييم' : 'Rate'}
                           </Button>
                         )}
 
@@ -543,11 +578,11 @@ export default function OrdersPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1 border-blue-500 text-blue-500 hover:bg-blue-50"
+                            className="flex-1 rounded-xl font-black text-xs border-blue-400 text-blue-600 hover:bg-blue-50"
                             onClick={() => window.location.href = `tel:${order.driverPhone}`}
                           >
-                            <Phone className="w-4 h-4 mr-1" />
-                            اتصال بالسائق
+                            <Phone className={`w-3.5 h-3.5 ${language === 'ar' ? 'ml-1' : 'mr-1'}`} />
+                            {language === 'ar' ? 'اتصال بالسائق' : 'Call Driver'}
                           </Button>
                         )}
                         
@@ -555,11 +590,11 @@ export default function OrdersPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="flex-1"
+                            className="flex-1 rounded-xl font-black text-xs border-slate-200 hover:bg-slate-50 text-slate-700"
                             onClick={() => handleReorder(order)}
                             data-testid={`button-reorder-${order.id}`}
                           >
-                            إعادة الطلب
+                            {t('reorder')}
                           </Button>
                         )}
                       </div>
@@ -579,7 +614,7 @@ export default function OrdersPage() {
               setSelectedOrder(null);
             }}
             orderId={selectedOrder.id}
-            restaurantName={selectedOrder.restaurantName || "المطعم"}
+            restaurantName={selectedOrder.restaurantName || (language === 'ar' ? "المطعم" : "Restaurant")}
             driverName={selectedOrder.driverName}
             customerId={selectedOrder.customerId || user?.id}
           />
@@ -588,14 +623,16 @@ export default function OrdersPage() {
 
       {/* نافذة إلغاء الطلب */}
       {showCancelDialog && cancellingOrder && (
-        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4" dir="rtl">
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
             {/* رأس النافذة */}
             <div className="bg-red-500 px-5 py-4 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <XCircle className="h-5 w-5" />
-                  <h3 className="font-black text-lg">إلغاء الطلب</h3>
+                  <h3 className="font-black text-lg">
+                    {language === 'ar' ? 'إلغاء الطلب' : 'Cancel Order'}
+                  </h3>
                 </div>
                 <button
                   onClick={() => setShowCancelDialog(false)}
@@ -605,14 +642,14 @@ export default function OrdersPage() {
                 </button>
               </div>
               <p className="text-white/80 text-sm mt-1">
-                طلب رقم: {cancellingOrder.orderNumber}
+                {language === 'ar' ? 'طلب رقم:' : 'Order #:'} {cancellingOrder.orderNumber}
               </p>
             </div>
 
             {/* المحتوى */}
             <div className="px-5 py-4">
               <p className="text-gray-700 font-bold text-sm mb-4">
-                يرجى اختيار سبب الإلغاء:
+                {language === 'ar' ? 'يرجى اختيار سبب الإلغاء:' : 'Please select cancellation reason:'}
               </p>
 
               <div className="space-y-2 mb-4">
@@ -620,7 +657,7 @@ export default function OrdersPage() {
                   <button
                     key={reason}
                     onClick={() => setCancelReason(reason)}
-                    className={`w-full text-right px-4 py-3 rounded-xl border-2 transition-all text-sm font-bold ${
+                    className={`w-full ${language === 'ar' ? 'text-right' : 'text-left'} px-4 py-3 rounded-xl border-2 transition-all text-sm font-bold ${
                       cancelReason === reason
                         ? 'border-red-500 bg-red-50 text-red-700'
                         : 'border-gray-100 hover:border-gray-300 text-gray-700'
@@ -631,9 +668,9 @@ export default function OrdersPage() {
                 ))}
               </div>
 
-              {cancelReason === 'سبب آخر' && (
+              {cancelReason === otherReasonKey && (
                 <textarea
-                  placeholder="اكتب سبب الإلغاء..."
+                  placeholder={language === 'ar' ? "اكتب سبب الإلغاء..." : "Write cancellation reason..."}
                   value={customCancelReason}
                   onChange={(e) => setCustomCancelReason(e.target.value)}
                   className="w-full p-3 border-2 rounded-xl text-sm focus:border-red-400 outline-none resize-none mb-4"
@@ -646,12 +683,12 @@ export default function OrdersPage() {
                   variant="destructive"
                   className="flex-1"
                   onClick={handleConfirmCancel}
-                  disabled={cancelOrderMutation.isPending || !cancelReason || (cancelReason === 'سبب آخر' && !customCancelReason.trim())}
+                  disabled={cancelOrderMutation.isPending || !cancelReason || (cancelReason === otherReasonKey && !customCancelReason.trim())}
                 >
                   {cancelOrderMutation.isPending ? (
                     <Loader className="h-4 w-4 animate-spin" />
                   ) : (
-                    'تأكيد الإلغاء'
+                    language === 'ar' ? 'تأكيد الإلغاء' : 'Confirm Cancel'
                   )}
                 </Button>
                 <Button
@@ -660,7 +697,7 @@ export default function OrdersPage() {
                   onClick={() => setShowCancelDialog(false)}
                   disabled={cancelOrderMutation.isPending}
                 >
-                  رجوع
+                  {t('cancel')}
                 </Button>
               </div>
             </div>

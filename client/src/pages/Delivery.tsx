@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/context/AuthContext';
 import { useLocation } from 'wouter';
+import { openAlternativeMap } from '@/lib/mapUtils';
 import type { Order, Driver } from '@shared/schema';
 
 export default function Delivery() {
@@ -283,8 +284,14 @@ export default function Delivery() {
                       اتصال
                     </Button>
                     <Button 
-                      className="flex-1 gap-2"
-                      onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.deliveryAddress)}`)}
+                      className="flex-1 gap-2 bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100"
+                      onClick={() => openAlternativeMap({
+                        address: order.deliveryAddress,
+                        name: order.customerName,
+                        phone: order.customerPhone,
+                        orderNumber: order.orderNumber || order.id,
+                        type: 'customer'
+                      })}
                       data-testid={`button-navigate-${order.id}`}
                     >
                       <Navigation className="h-4 w-4" />
@@ -375,7 +382,13 @@ export default function Delivery() {
                         </Button>
                         <Button 
                           variant="outline"
-                          onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.deliveryAddress)}`)}
+                          onClick={() => openAlternativeMap({
+                            address: order.deliveryAddress,
+                            name: order.customerName,
+                            phone: order.customerPhone,
+                            orderNumber: order.orderNumber || order.id,
+                            type: 'customer'
+                          })}
                           data-testid={`button-view-location-${order.id}`}
                         >
                           عرض الموقع

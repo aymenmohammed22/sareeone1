@@ -1,6 +1,6 @@
 {
-  "packageId": "com.onrender.sareeone1.twa",
-  "host": "sareeone1.onrender.com",
+  "packageId": "com.onrender.sareeone_serverwep_6d8v.twa",
+  "host": "sareeone-serverwep-6d8v.onrender.com",
   "name": "السريع ون - توصيل سريع",
   "launcherName": "السريع ون",
   "display": "standalone",
@@ -13,8 +13,8 @@
   "backgroundColor": "#FFFFFF",
   "enableNotifications": true,
   "startUrl": "/",
-  "iconUrl": "https://sareeone1.onrender.com/icon-512.png",
-  "maskableIconUrl": "https://sareeone1.onrender.com/icon-512.png",
+  "iconUrl": "https://sareeone-serverwep-6d8v.onrender.com/icon-512.png",
+  "maskableIconUrl": "https://sareeone-serverwep-6d8v.onrender.com/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "C:\\Users\\DZ\\Documents\\mykeystore",
@@ -24,7 +24,7 @@
   "appVersionCode": 1,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://sareeone1.onrender.com/manifest.json",
+  "webManifestUrl": "https://sareeone-serverwep-6d8v.onrender.com/manifest.json",
   "fallbackType": "customtabs",
   "features": {
     "playBilling": {
@@ -40,7 +40,7 @@
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
-  "fullScopeUrl": "https://sareeone1.onrender.com/",
+  "fullScopeUrl": "https://sareeone-serverwep-6d8v.onrender.com/",
   "minSdkVersion": 21,
   "orientation": "portrait",
   "fingerprints": [],

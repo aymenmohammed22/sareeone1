@@ -7,7 +7,8 @@ import { useToast } from '@/hooks/use-toast';
 import { MapPin, Phone, Navigation, CheckCircle, Package, Clock, Bike, ArrowLeftRight, DollarSign, Store, Map as MapIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import DriverMapView from '@/components/maps/DriverMapView';
-import { openInGoogleMaps } from '@/lib/mapUtils';
+import AlternativeMapRouteModal from '@/components/maps/AlternativeMapRouteModal';
+import { openInGoogleMaps, openAlternativeMap } from '@/lib/mapUtils';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { soundAlert } from '@/lib/soundAlert';
 import { CallContactDialog } from '@/components/CallContactDialog';
@@ -46,12 +47,22 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
   const [updatingWasalniId, setUpdatingWasalniId] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [mapModalOrder, setMapModalOrder] = useState<any | null>(null);
+  const [alternativeMapData, setAlternativeMapData] = useState<{
+    lat?: string | number | null;
+    lng?: string | number | null;
+    address?: string | null;
+    name?: string;
+    phone?: string;
+    orderNumber?: string;
+    type?: 'customer' | 'restaurant';
+  } | null>(null);
   const [callDialog, setCallDialog] = useState<{
     isOpen: boolean;
     name: string;
     role: 'customer' | 'restaurant' | 'admin';
     phone: string;
     orderNumber?: string;
+    orderId?: string;
   }>({
     isOpen: false,
     name: '',
@@ -71,9 +82,9 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 20000,
-    refetchIntervalInBackground: false,
-    staleTime: 5000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    staleTime: 3000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });
@@ -88,9 +99,9 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
       const data = await response.json();
       return Array.isArray(data) ? data : [];
     },
-    refetchInterval: 20000,
-    refetchIntervalInBackground: false,
-    staleTime: 5000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    staleTime: 3000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });
@@ -301,6 +312,7 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                           role: 'customer',
                           phone: order.customerPhone,
                           orderNumber: order.orderNumber,
+                          orderId: order.id,
                         });
                       }}
                       variant="outline"
@@ -313,12 +325,14 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        openInGoogleMaps({
+                        setAlternativeMapData({
                           lat: order.customerLocationLat,
                           lng: order.customerLocationLng,
                           address: order.deliveryAddress,
-                          label: order.customerName,
-                          mode: 'navigate'
+                          name: order.customerName,
+                          phone: order.customerPhone,
+                          orderNumber: order.orderNumber,
+                          type: 'customer',
                         });
                       }}
                       variant="outline"
@@ -332,7 +346,15 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setMapModalOrder(order);
+                        setAlternativeMapData({
+                          lat: order.customerLocationLat,
+                          lng: order.customerLocationLng,
+                          address: order.deliveryAddress,
+                          name: order.customerName,
+                          phone: order.customerPhone,
+                          orderNumber: order.orderNumber,
+                          type: 'customer',
+                        });
                       }}
                       variant="outline"
                       size="sm"
@@ -445,6 +467,7 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                           role: 'customer',
                           phone: req.customerPhone,
                           orderNumber: req.orderNumber || req.requestNumber,
+                          orderId: req.id,
                         });
                       }}
                       variant="outline"
@@ -457,12 +480,14 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        openInGoogleMaps({
+                        setAlternativeMapData({
                           lat: req.toLat,
                           lng: req.toLng,
                           address: req.toAddress,
-                          label: req.customerName,
-                          mode: 'navigate'
+                          name: req.customerName,
+                          phone: req.customerPhone,
+                          orderNumber: req.requestNumber,
+                          type: 'customer',
                         });
                       }}
                       variant="outline"
@@ -476,12 +501,14 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        openInGoogleMaps({
+                        setAlternativeMapData({
                           lat: req.fromLat,
                           lng: req.fromLng,
                           address: req.fromAddress,
-                          label: 'موقع الاستلام - وصل لي',
-                          mode: 'navigate'
+                          name: 'موقع الاستلام - وصل لي',
+                          phone: req.customerPhone,
+                          orderNumber: req.requestNumber,
+                          type: 'restaurant',
                         });
                       }}
                       variant="outline"
@@ -495,16 +522,14 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setMapModalOrder({
-                          ...req,
-                          customerLocationLat: req.toLat,
-                          customerLocationLng: req.toLng,
-                          restaurantLatitude: req.fromLat,
-                          restaurantLongitude: req.fromLng,
-                          deliveryAddress: req.toAddress,
-                          restaurantAddress: req.fromAddress,
-                          restaurantName: 'موقع الاستلام (وصل لي)',
-                          isWasalni: true,
+                        setAlternativeMapData({
+                          lat: req.toLat,
+                          lng: req.toLng,
+                          address: req.toAddress,
+                          name: req.customerName,
+                          phone: req.customerPhone,
+                          orderNumber: req.requestNumber,
+                          type: 'customer',
                         });
                       }}
                       variant="outline"
@@ -560,62 +585,23 @@ export default function ActiveOrdersPage({ driverId, onSelectOrder }: ActiveOrde
         contactRole={callDialog.role}
         phoneNumber={callDialog.phone}
         orderNumber={callDialog.orderNumber}
+        orderId={callDialog.orderId}
       />
 
-      {/* نافذة الخريطة التفاعلية */}
-      <Dialog open={!!mapModalOrder} onOpenChange={(open) => !open && setMapModalOrder(null)}>
-        <DialogContent className="max-w-3xl w-[95vw] p-4 max-h-[90vh] overflow-y-auto" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="text-right text-base font-bold flex items-center justify-between">
-              <span>خريطة ومسار الطلب #{mapModalOrder?.orderNumber || mapModalOrder?.requestNumber || mapModalOrder?.id?.slice(-6)}</span>
-            </DialogTitle>
-          </DialogHeader>
-          {mapModalOrder && (
-            <div className="space-y-3 mt-2">
-              <DriverMapView
-                orders={[mapModalOrder]}
-                height="360px"
-              />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-                <Button
-                  type="button"
-                  onClick={() => {
-                    openInGoogleMaps({
-                      lat: mapModalOrder.customerLocationLat ?? mapModalOrder.toLat,
-                      lng: mapModalOrder.customerLocationLng ?? mapModalOrder.toLng,
-                      address: mapModalOrder.deliveryAddress ?? mapModalOrder.toAddress,
-                      label: mapModalOrder.customerName,
-                      mode: 'navigate'
-                    });
-                  }}
-                  className="bg-red-600 hover:bg-red-700 text-white font-bold gap-2 text-xs h-10 shadow-xs"
-                >
-                  <Navigation className="h-4 w-4" />
-                  توجيه Google Maps لعنوان العميل
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    openInGoogleMaps({
-                      lat: mapModalOrder.restaurantLatitude ?? mapModalOrder.restaurantLat ?? mapModalOrder.fromLat,
-                      lng: mapModalOrder.restaurantLongitude ?? mapModalOrder.restaurantLng ?? mapModalOrder.fromLng,
-                      address: mapModalOrder.restaurantAddress ?? mapModalOrder.fromAddress,
-                      label: mapModalOrder.restaurantName || 'موقع الاستلام',
-                      mode: 'navigate'
-                    });
-                  }}
-                  className="border-amber-500 text-amber-700 hover:bg-amber-50 font-bold gap-2 text-xs h-10"
-                >
-                  <Store className="h-4 w-4 text-amber-600" />
-                  توجيه Google Maps لموقع الاستلام
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* نافذة الخرائط البديلة التفاعلية بنظام Leaflet والأسهم الإرشادية */}
+      {alternativeMapData && (
+        <AlternativeMapRouteModal
+          isOpen={!!alternativeMapData}
+          onClose={() => setAlternativeMapData(null)}
+          destinationLat={alternativeMapData.lat}
+          destinationLng={alternativeMapData.lng}
+          destinationAddress={alternativeMapData.address}
+          destinationName={alternativeMapData.name}
+          destinationType={alternativeMapData.type || 'customer'}
+          destinationPhone={alternativeMapData.phone}
+          orderNumber={alternativeMapData.orderNumber}
+        />
+      )}
     </div>
   );
 }

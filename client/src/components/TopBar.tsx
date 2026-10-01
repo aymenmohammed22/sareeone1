@@ -22,6 +22,7 @@ import waselLogo from '@assets/wasel-logo.png';
 // شريط حالة عمل التطبيق (مفتوح/مغلق + ساعات العمل) - استبدل زر الموقع
 const WorkingHoursIndicator: React.FC = () => {
   const { getSetting } = useUiSettings();
+  const { t, language } = useLanguage();
   const storeStatus = getSetting('store_status') || 'auto';
   const openingTime = getSetting('opening_time') || '08:00';
   const closingTime = getSetting('closing_time') || '23:00';
@@ -51,14 +52,14 @@ const WorkingHoursIndicator: React.FC = () => {
 
   const isOpen = appStatus.isOpen;
 
-  // تنسيق 12 ساعة مع ص/م بالعربية
-  const format12 = (t: string): string => {
-    if (!t || !t.includes(':')) return t;
-    const [hStr, mStr] = t.split(':');
+  // تنسيق 12 ساعة مع ص/م بالعربية أو AM/PM بالإنجليزية
+  const format12 = (timeStr: string): string => {
+    if (!timeStr || !timeStr.includes(':')) return timeStr;
+    const [hStr, mStr] = timeStr.split(':');
     let h = parseInt(hStr, 10);
     const m = (mStr || '00').padStart(2, '0');
-    if (isNaN(h)) return t;
-    const suffix = h >= 12 ? 'م' : 'ص';
+    if (isNaN(h)) return timeStr;
+    const suffix = language === 'ar' ? (h >= 12 ? 'م' : 'ص') : (h >= 12 ? 'PM' : 'AM');
     h = h % 12;
     if (h === 0) h = 12;
     return `${h}:${m} ${suffix}`;
@@ -87,12 +88,12 @@ const WorkingHoursIndicator: React.FC = () => {
           />
         </div>
         <Clock className={`h-3.5 w-3.5 ${isOpen ? 'text-green-300' : 'text-red-300'}`} />
-        <div className="flex-1 text-right">
+        <div className={`flex-1 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
           <div className="text-[9px] font-bold text-white/60 leading-none">
-            {isOpen ? 'التطبيق مفتوح الآن' : 'التطبيق مغلق حالياً'}
+            {isOpen ? t('app_open_now') : t('app_closed_now')}
           </div>
           <div className="text-xs font-bold text-white truncate leading-tight mt-0.5">
-            ساعات العمل: {format12(openingTime)} - {format12(closingTime)}
+            {t('working_hours')}: {format12(openingTime)} - {format12(closingTime)}
           </div>
         </div>
         <span
@@ -102,7 +103,7 @@ const WorkingHoursIndicator: React.FC = () => {
               : 'bg-red-400/20 text-red-300 border border-red-400/30'
           }`}
         >
-          {isOpen ? 'مفتوح' : 'مغلق'}
+          {isOpen ? t('open') : t('closed')}
         </span>
       </div>
     </div>
@@ -157,60 +158,60 @@ export const TopBar: React.FC = () => {
   return (
     <div className="sticky top-0 z-50">
       {/* Desktop Header - orange-red gradient */}
-      <div className="bg-gradient-to-r from-[#C73208] via-[#E03A0E] to-[#C73208] border-b border-white/10 hidden md:block shadow-lg">
-        <div className="container mx-auto px-4 py-2 flex items-center justify-between gap-8">
+      <div className="bg-gradient-to-r from-[#E64A19] via-[#FF5722] to-[#F4511E] border-b border-white/10 hidden md:block shadow-lg">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-8">
           <div 
             className="cursor-pointer shrink-0 flex items-center gap-3 group"
             onClick={() => setLocation('/')}
             data-testid="link-home-logo"
           >
             <div className="relative">
-              <div className="absolute inset-0 bg-[#F05215] rounded-full blur-xl opacity-25 group-hover:opacity-40 transition-opacity" />
-              <img src={logoUrl} alt={appName} className="relative h-14 w-auto object-contain transition-transform group-hover:scale-105 drop-shadow-[0_0_15px_rgba(240,82,21,0.45)]" />
+              <div className="absolute inset-0 bg-white/20 rounded-full blur-md opacity-40 group-hover:opacity-60 transition-opacity" />
+              <img src={logoUrl} alt={appName} className="relative h-12 w-auto object-contain transition-transform group-hover:scale-105 drop-shadow-[0_2px_8px_rgba(0,0,0,0.15)]" />
             </div>
             <div className="flex flex-col leading-none">
-              <span className="text-2xl font-black text-white tracking-tight">{appName}</span>
-              <span className="text-[10px] font-bold text-white/80 tracking-[0.3em] mt-1">{appSubtitle}</span>
+              <span className="text-2xl font-black text-white tracking-tight drop-shadow-sm">{appName}</span>
+              <span className="text-[11px] font-bold text-white/90 tracking-[0.2em] mt-1">{appSubtitle}</span>
             </div>
           </div>
 
           <div className="flex-1 max-w-2xl">
             <form onSubmit={handleSearch} className="relative group">
               <Input 
-                className="w-full pr-12 pl-4 h-12 bg-gray-100 border-2 border-transparent focus:border-primary/20 focus:bg-white rounded-xl transition-all text-base font-bold"
+                className="w-full pr-12 pl-4 h-12 bg-white/95 border-0 focus:bg-white rounded-2xl shadow-sm transition-all text-base font-bold text-slate-800 placeholder-slate-400"
                 placeholder={t('search_placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary transition-colors">
+              <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-primary hover:scale-110 transition-transform">
                 <Search className="h-6 w-6" />
               </button>
             </form>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button 
               onClick={() => setLocation(user ? '/profile' : '/auth')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors relative"
+              className="p-2.5 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-all active:scale-95 relative"
             >
-              <User className="h-7 w-7 text-gray-700" />
+              <User className="h-6 w-6 text-white" />
             </button>
             
             <button 
               onClick={() => setLocation('/favorites')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors relative"
+              className="p-2.5 bg-white/10 hover:bg-white/20 rounded-2xl text-white transition-all active:scale-95 relative"
             >
-              <Heart className="h-7 w-7 text-gray-700" />
+              <Heart className="h-6 w-6 text-white" />
             </button>
 
             <button 
               onClick={handleOpenCart}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors relative"
+              className="p-2.5 bg-white text-[#FF5722] hover:bg-white/90 rounded-2xl transition-all active:scale-95 relative shadow-md"
             >
               <div className="relative">
-                <ShoppingCart className="h-7 w-7 text-gray-700" />
+                <ShoppingCart className="h-6 w-6" />
                 {getItemCount() > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-primary text-white text-[10px] rounded-full h-5 w-5 flex items-center justify-center font-bold border-2 border-white">
+                  <span className="absolute -top-2 -right-2 bg-[#1E2022] text-white text-[10px] rounded-full h-5 min-w-[20px] px-1 flex items-center justify-center font-black border-2 border-white shadow-sm">
                     {getItemCount()}
                   </span>
                 )}
@@ -220,22 +221,22 @@ export const TopBar: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile Header - orange-red gradient */}
-      <div className="md:hidden relative bg-gradient-to-br from-[#C73208] via-[#E03A0E] to-[#B52200] shadow-xl overflow-hidden">
-        {/* Decorative glow blobs */}
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#F05215] opacity-20 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-12 -left-12 w-44 h-44 rounded-full bg-[#FF7840] opacity-10 blur-3xl pointer-events-none" />
+      {/* Mobile Header - orange-red gradient with curved bottom */}
+      <div className="md:hidden relative bg-gradient-to-b from-[#FF5722] via-[#F4511E] to-[#E64A19] shadow-xl overflow-hidden rounded-b-[24px]">
+        {/* Decorative subtle circles */}
+        <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/10 blur-xl pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-36 h-36 rounded-full bg-black/5 blur-xl pointer-events-none" />
 
-        <div className="relative px-3 py-2.5 flex items-center justify-between gap-2">
+        <div className="relative px-3.5 py-3 flex items-center justify-between gap-2">
           {/* Right side (RTL leading): Menu + Notifications */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-10 w-10 text-white hover:bg-white/15 shrink-0 rounded-xl" 
+              className="h-10 w-10 text-white bg-white/15 hover:bg-white/25 shrink-0 rounded-2xl active:scale-95 transition-transform" 
               onClick={() => document.getElementById('sidebar-trigger')?.click()}
             >
-              <MenuIcon className="h-6 w-6" />
+              <MenuIcon className="h-5 w-5" />
             </Button>
             <CustomerNotificationsPanel />
           </div>
@@ -246,35 +247,34 @@ export const TopBar: React.FC = () => {
             onClick={() => setLocation('/')}
             data-testid="link-home-logo-mobile"
           >
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/15 border border-white/20 backdrop-blur-md shadow-inner">
               <div className="relative">
-                <div className="absolute inset-0 bg-[#F05215] rounded-full blur-md opacity-50" />
-                <img src={logoUrl} alt={appName} className="relative h-8 w-8 object-contain drop-shadow-[0_0_8px_rgba(240,82,21,0.5)]" />
+                <img src={logoUrl} alt={appName} className="relative h-7 w-7 object-contain drop-shadow" />
               </div>
               <div className="flex flex-col leading-none">
-                <span className="text-white font-black text-base">{appName}</span>
-                <span className="text-[8px] font-bold text-white/80 tracking-[0.25em] mt-0.5">{appSubtitle}</span>
+                <span className="text-white font-black text-sm tracking-tight">{appName}</span>
+                <span className="text-[8px] font-bold text-white/90 tracking-wider mt-0.5">{appSubtitle}</span>
               </div>
             </div>
           </div>
 
           {/* Left side (RTL trailing): Search + Cart */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button 
               onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="h-10 w-10 flex items-center justify-center text-white hover:bg-white/15 rounded-xl transition-colors"
+              className="h-10 w-10 flex items-center justify-center text-white bg-white/15 hover:bg-white/25 rounded-2xl transition-all active:scale-95"
               aria-label="search"
             >
               <Search className="h-5 w-5" />
             </button>
             <button
               onClick={handleOpenCart}
-              className="h-10 w-10 flex items-center justify-center text-white hover:bg-white/15 rounded-xl transition-colors relative"
+              className="h-10 w-10 flex items-center justify-center text-[#FF5722] bg-white hover:bg-white/90 rounded-2xl transition-all active:scale-95 relative shadow-md"
               aria-label="cart"
             >
               <ShoppingCart className="h-5 w-5" />
               {getItemCount() > 0 && (
-                <span className="absolute top-0.5 right-0.5 bg-[#F05215] text-[#1A0600] text-[9px] rounded-full h-4 min-w-4 px-1 flex items-center justify-center font-black ring-2 ring-[#1A0600] shadow-lg">
+                <span className="absolute -top-1 -right-1 bg-[#1E2022] text-white text-[9px] rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center font-black border border-white shadow-sm">
                   {getItemCount()}
                 </span>
               )}
@@ -287,24 +287,21 @@ export const TopBar: React.FC = () => {
 
         {/* Mobile Search Bar - Expandable */}
         {isSearchOpen && (
-          <div className="relative px-3 pb-3 -mt-1">
+          <div className="relative px-3.5 pb-3.5 pt-1">
             <form onSubmit={handleSearch} className="relative">
               <input
                 autoFocus
-                className="w-full bg-white/95 text-slate-900 placeholder-slate-400 border border-white/30 rounded-2xl px-4 py-2.5 pr-11 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#F05215] shadow-lg"
-                placeholder="ابحث عن مطعم أو طبق..."
+                className="w-full bg-white text-slate-900 placeholder-slate-400 border-0 rounded-2xl px-4 py-2.5 pr-11 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-white shadow-md"
+                placeholder={t('search_placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <button type="submit" className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-[#F05215] text-white flex items-center justify-center shadow-md">
+              <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl bg-[#FF5722] text-white flex items-center justify-center shadow">
                 <Search className="h-4 w-4" />
               </button>
             </form>
           </div>
         )}
-
-        {/* Bottom curved decoration */}
-        <div className="relative h-3 bg-background rounded-t-3xl -mb-px" />
       </div>
     </div>
   );

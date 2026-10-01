@@ -2,9 +2,11 @@ import React from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import type { Category } from '@shared/schema';
+import { useLanguage } from '../context/LanguageContext';
 
 export const Navbar: React.FC = () => {
   const [location, setLocation] = useLocation();
+  const { t } = useLanguage();
 
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ['/api/categories'],
@@ -29,7 +31,7 @@ export const Navbar: React.FC = () => {
                   : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
-              الرئيسية
+              {t('home')}
             </button>
           </li>
           <li>
@@ -41,7 +43,7 @@ export const Navbar: React.FC = () => {
                   : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
-              طلباتي
+              {t('orders')}
             </button>
           </li>
           {displayCategories.map((cat) => (

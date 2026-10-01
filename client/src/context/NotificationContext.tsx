@@ -22,7 +22,25 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [badgeCount, setBadgeCount] = useState(0);
   const { user } = useAuth();
+
+  // App Badge API helper
+  const updateAppBadge = useCallback((count: number) => {
+    try {
+      if (typeof navigator !== 'undefined' && 'setAppBadge' in navigator) {
+        if (count > 0) {
+          (navigator as any).setAppBadge(count).catch(() => {});
+        } else {
+          (navigator as any).clearAppBadge().catch(() => {});
+        }
+      }
+      if (typeof document !== 'undefined') {
+        const baseTitle = document.title.replace(/^\(\d+\)\s*/, '');
+        document.title = count > 0 ? `(${count}) ${baseTitle}` : baseTitle;
+      }
+    } catch (_) {}
+  }, []);
 
   const removeNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
@@ -89,6 +107,36 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
               const audio = new Audio('/notification.mp3');
               audio.play();
             } catch (e) {}
+            setBadgeCount(prev => {
+              const next = prev + 1;
+              updateAppBadge(next);
+              return next;
+            });
+          } else if (data.type === 'order_message' || data.type === 'new_order_message' || data.type === 'new_message') {
+            const msgPayload = data.payload || {};
+            const senderTitle = msgPayload.senderType === 'driver' 
+              ? 'رسالة جديدة من كابتن التوصيل 🛵' 
+              : msgPayload.senderType === 'customer' 
+                ? 'رسالة جديدة من العميل 👤' 
+                : 'رسالة جديدة من الدعم الفني 💬';
+
+            showNotification({
+              type: 'info',
+              title: senderTitle,
+              message: msgPayload.content || 'لديك رسالة جديدة بخصوص الطلب',
+              duration: 8000
+            });
+
+            try {
+              const audio = new Audio('/notification.mp3');
+              audio.play();
+            } catch (e) {}
+
+            setBadgeCount(prev => {
+              const next = prev + 1;
+              updateAppBadge(next);
+              return next;
+            });
           } else if (data.type === 'order_status_changed' || data.type === 'order_update') {
             const { orderId, status, message: msg, orderNumber } = data.payload || {};
             const statusLabels: Record<string, string> = {

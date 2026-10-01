@@ -10,28 +10,49 @@ interface SplashScreenProps {
   onFinish: () => void;
 }
 
-const MIN_SPLASH_MS = 600;
-const MAX_BOOTSTRAP_MS = 2500;
+// الحد الأدنى للمدة الزمنية الكافية لاكتمال ظهور كافة الحركات والنصوص والشعار وزر البداية
+const DEFAULT_SPLASH_DURATION_MS = 3000;
+const MIN_SPLASH_DURATION_MS = 2500;
+const MAX_BOOTSTRAP_MS = 2000;
 
 const PARTICLE_COUNT = 22;
 const TWINKLE_COUNT = 14;
 const RAY_COUNT = 12;
 
 export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
-  const { getSetting, loading: settingsLoading } = useUiSettings();
+  const { getSetting, settings } = useUiSettings();
   const { user } = useAuth();
-  const [show, setShow] = useState(true);
+  const [isExiting, setIsExiting] = useState(false);
   const [ready, setReady] = useState(false);
-  const [lettersConnected, setLettersConnected] = useState(false);
 
+  // استخدام الإعدادات بشكل مباشر لضمان التحديث السريع فور توفرها
+  const splashDurationMs = useMemo(() => {
+    const rawDuration = getSetting('splash_duration');
+    if (!rawDuration) return DEFAULT_SPLASH_DURATION_MS;
+    const parsed = parseFloat(rawDuration);
+    if (isNaN(parsed) || parsed <= 0) return DEFAULT_SPLASH_DURATION_MS;
+    const inMs = parsed < 100 ? parsed * 1000 : parsed;
+    return Math.max(MIN_SPLASH_DURATION_MS, inMs);
+  }, [getSetting]);
+
+  const splashImageUrl = getSetting('splash_image_url');
+  const splashImageUrl2 = getSetting('splash_image_url_2');
+  const logoUrl = splashImageUrl || getSetting('logo_url') || waselLogo;
+  const splashTitle = getSetting('splash_title') || 'السريع ون';
+  const splashSubtitle = getSetting('splash_subtitle') || 'نوصل لك بكل سرعة وأمان';
+  const buttonText = getSetting('splash_button_text') || 'ابدأ الآن';
+
+  // Preload logo image
   useEffect(() => {
-    // التحول من الحروف المقطعة (وقت الظهور) إلى النص المتصل بعد الانتهاء من الحركة
-    const letterTimer = setTimeout(() => {
-      setLettersConnected(true);
-    }, 2200);
-
-    return () => clearTimeout(letterTimer);
-  }, []);
+    if (logoUrl) {
+      const img = new Image();
+      img.src = logoUrl;
+    }
+    if (splashImageUrl2) {
+      const img2 = new Image();
+      img2.src = splashImageUrl2;
+    }
+  }, [logoUrl, splashImageUrl2]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,25 +64,36 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
     const bootPromise = prefetchBootstrap({ phone, customerId, force: true });
     const timeoutPromise = new Promise(resolve => setTimeout(resolve, MAX_BOOTSTRAP_MS));
 
+    // تفعيل زر البدء فور انتهاء التحميل التمهيدي
     Promise.race([bootPromise, timeoutPromise]).finally(() => {
       const elapsed = Date.now() - startedAt;
-      const remaining = Math.max(0, MIN_SPLASH_MS - elapsed);
+      const readyDelay = Math.max(0, 800 - elapsed); // تقليل وقت الانتظار ليكون أسرع
       setTimeout(() => {
         if (!cancelled) {
           setReady(true);
-          // الانتقال التلقائي السريع فور الجاهزية
-          setTimeout(() => {
-            if (!cancelled) {
-              setShow(false);
-              setTimeout(onFinish, 200);
-            }
-          }, 400);
         }
-      }, remaining);
+      }, readyDelay);
     });
 
-    return () => { cancelled = true; };
-  }, [user?.id, user?.phone, onFinish]);
+    // الانتقال التلقائي السلس بعد اكتمال كامل مدة العرض وظهور كافة المحتويات
+    const autoFinishTimer = setTimeout(() => {
+      if (!cancelled) {
+        setIsExiting(true);
+        setTimeout(() => {
+          if (!cancelled) {
+            onFinish();
+          }
+        }, 600); // زيادة الوقت لضمان انتهاء الانتقال (duration-500)
+      }
+    }, splashDurationMs);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(autoFinishTimer);
+    };
+  }, [user?.id, user?.phone, onFinish, splashDurationMs]);
+
+  const [logoLoaded, setLogoLoaded] = useState(false);
 
   // Pre-compute random positions once so they don't shift on re-render
   const particles = useMemo(() =>
@@ -91,27 +123,18 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
       delay: (i * 0.15) % 4,
     })), []);
 
-  // Render immediately with default or cached settings
-  const splashImageUrl = getSetting('splash_image_url');
-  const splashImageUrl2 = getSetting('splash_image_url_2');
-  const logoUrl = splashImageUrl || getSetting('logo_url') || waselLogo;
-  const splashTitle = getSetting('splash_title') || 'السريع ون';
-  const splashSubtitle = getSetting('splash_subtitle') || 'نوصل لك بكل سرعة وأمان';
-  const buttonText = getSetting('splash_button_text') || 'ابدأ الآن';
-
   const handleStart = () => {
-    setShow(false);
-    setTimeout(onFinish, 500);
+    if (isExiting) return;
+    setIsExiting(true);
+    setTimeout(onFinish, 600);
   };
 
-  if (!show) {
-    return (
-      <div className="fixed inset-0 bg-[#C73208] z-[9999] transition-opacity duration-500 opacity-0 pointer-events-none" />
-    );
-  }
-
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col transition-opacity duration-500 overflow-hidden bg-gradient-to-b from-[#C73208] via-[#E03A0E] to-[#B52200]">
+    <div
+      className={`fixed inset-0 z-[9999] flex flex-col transition-opacity duration-500 overflow-hidden bg-gradient-to-b from-[#C73208] via-[#E03A0E] to-[#B52200] ${
+        isExiting ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}
+    >
       {/* خلفية شبكية متدرجة متحركة */}
       <div className="absolute inset-0 splash-bg-mesh pointer-events-none" />
 
@@ -192,8 +215,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
             <div className="relative w-64 h-64 md:w-80 md:h-80">
               <img
                 src={logoUrl}
+                onLoad={() => setLogoLoaded(true)}
                 alt="السريع ون - Saree One"
-                className="relative w-full h-full object-contain drop-shadow-[0_25px_60px_rgba(240,82,21,0.65)] splash-float"
+                className={`relative w-full h-full object-contain drop-shadow-[0_25px_60px_rgba(240,82,21,0.65)] splash-float transition-opacity duration-500 ${logoLoaded ? 'opacity-100' : 'opacity-0'}`}
                 data-testid="img-splash-logo"
               />
               {/* طبقة لمعان تمر على الشعار */}
@@ -244,21 +268,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
             data-testid="text-splash-title"
             aria-label={splashTitle}
           >
-            {!lettersConnected ? (
-              splashTitle.split('').map((ch, i) => (
-                <span
-                  key={i}
-                  className="splash-letter inline-block"
-                  style={{ animationDelay: `${0.8 + i * 0.12}s` }}
-                >
-                  {ch === ' ' ? '\u00A0' : ch}
-                </span>
-              ))
-            ) : (
-              <span className="inline-block font-black transition-all duration-300">
-                {splashTitle}
-              </span>
-            )}
+            <span className="inline-block font-black">
+              {splashTitle}
+            </span>
           </h1>
 
           {splashImageUrl2 && (

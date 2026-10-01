@@ -42,7 +42,7 @@ interface SettingsGroup {
 export default function Settings() {
   const [, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const { toast } = useToast();
   const { logout } = useAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -67,8 +67,8 @@ export default function Settings() {
     }));
     
     toast({
-      title: "تم حفظ الإعدادات",
-      description: "تم تحديث إعداداتك بنجاح",
+      title: language === 'ar' ? "تم حفظ الإعدادات" : "Settings Saved",
+      description: language === 'ar' ? "تم تحديث إعداداتك بنجاح" : "Your settings have been updated successfully",
     });
   };
 
@@ -79,36 +79,36 @@ export default function Settings() {
     }));
     
     toast({
-      title: "تم حفظ الإعدادات",
-      description: "تم تحديث إعداداتك بنجاح",
+      title: language === 'ar' ? "تم حفظ الإعدادات" : "Settings Saved",
+      description: language === 'ar' ? "تم تحديث إعداداتك بنجاح" : "Your settings have been updated successfully",
     });
   };
 
   const settingsGroups: SettingsGroup[] = [
     {
-      title: 'الإشعارات',
+      title: language === 'ar' ? 'الإشعارات' : 'Notifications',
       icon: Bell,
       items: [
         {
           key: 'orderUpdates',
-          label: 'تحديثات الطلبات',
-          description: 'إشعارات حول حالة طلباتك',
+          label: language === 'ar' ? 'تحديثات الطلبات' : 'Order Updates',
+          description: language === 'ar' ? 'إشعارات حول حالة طلباتك' : 'Notifications about your order status',
           type: 'switch',
           value: settings.notifications.orderUpdates,
           onChange: (value: boolean) => handleNotificationChange('orderUpdates', value),
         },
         {
           key: 'promotions',
-          label: 'العروض والتخفيضات',
-          description: 'إشعارات حول العروض الجديدة',
+          label: language === 'ar' ? 'العروض والتخفيضات' : 'Offers & Promotions',
+          description: language === 'ar' ? 'إشعارات حول العروض الجديدة' : 'Notifications about new discounts and offers',
           type: 'switch',
           value: settings.notifications.promotions,
           onChange: (value: boolean) => handleNotificationChange('promotions', value),
         },
         {
           key: 'sound',
-          label: 'الأصوات',
-          description: 'تشغيل أصوات الإشعارات',
+          label: language === 'ar' ? 'الأصوات' : 'Sounds',
+          description: language === 'ar' ? 'تشغيل أصوات الإشعارات' : 'Play notification audio',
           type: 'switch',
           value: settings.notifications.sound,
           onChange: (value: boolean) => handleNotificationChange('sound', value),
@@ -116,21 +116,21 @@ export default function Settings() {
       ],
     },
     {
-      title: 'العرض واللغة',
+      title: language === 'ar' ? 'العرض واللغة' : 'Display & Language',
       icon: Globe,
       items: [
         {
           key: 'theme',
-          label: 'المظهر',
-          description: 'اختيار المظهر الفاتح أو الداكن',
+          label: language === 'ar' ? 'المظهر' : 'Appearance',
+          description: language === 'ar' ? 'اختيار المظهر الفاتح أو الداكن' : 'Choose light or dark appearance',
           type: 'theme',
           value: theme,
           onChange: toggleTheme,
         },
         {
           key: 'language',
-          label: 'اللغة',
-          description: 'اختيار لغة التطبيق',
+          label: language === 'ar' ? 'اللغة' : 'Language',
+          description: language === 'ar' ? 'اختيار لغة التطبيق' : 'Select application language',
           type: 'select',
           value: language,
           options: [
@@ -140,32 +140,32 @@ export default function Settings() {
           onChange: (value: 'ar' | 'en') => {
             setLanguage(value);
             toast({
-              title: "تم تغيير اللغة",
+              title: value === 'ar' ? "تم تغيير اللغة" : "Language Changed",
               description: value === 'ar' ? "تم تحويل التطبيق للغة العربية" : "App has been switched to English",
             });
           },
         },
         {
           key: 'currency',
-          label: 'العملة',
-          description: 'وحدة العملة المستخدمة',
+          label: language === 'ar' ? 'العملة' : 'Currency',
+          description: language === 'ar' ? 'وحدة العملة المستخدمة' : 'Currency unit used in app',
           type: 'select',
           value: settings.currency,
           options: [
-            { value: 'YER', label: 'الريال اليمني (YER)' },
+            { value: 'YER', label: language === 'ar' ? 'الريال اليمني (YER)' : 'Yemeni Rial (YER)' },
           ],
           onChange: (value: string) => handleSimpleSettingChange('currency', value),
         },
       ],
     },
     {
-      title: 'الموقع والخصوصية',
+      title: language === 'ar' ? 'الموقع والخصوصية' : 'Location & Privacy',
       icon: Lock,
       items: [
         {
           key: 'autoLocation',
-          label: 'تحديد الموقع تلقائياً',
-          description: 'السماح للتطبيق بتحديد موقعك',
+          label: language === 'ar' ? 'تحديد الموقع تلقائياً' : 'Automatic Location',
+          description: language === 'ar' ? 'السماح للتطبيق بتحديد موقعك' : 'Allow app to detect your location',
           type: 'switch',
           value: settings.autoLocation,
           onChange: (value: boolean) => handleSimpleSettingChange('autoLocation', value),
@@ -177,15 +177,15 @@ export default function Settings() {
   const quickActions = [
     {
       icon: CreditCard,
-      label: 'طرق الدفع',
-      description: 'إدارة طرق الدفع المحفوظة',
+      label: language === 'ar' ? 'طرق الدفع' : 'Payment Methods',
+      description: language === 'ar' ? 'إدارة طرق الدفع المحفوظة' : 'Manage saved payment methods',
       action: () => setLocation('/payment-methods'),
       testId: 'settings-payment-methods',
     },
     {
       icon: Smartphone,
-      label: 'حول التطبيق',
-      description: 'معلومات النسخة والتحديثات',
+      label: language === 'ar' ? 'حول التطبيق' : 'About App',
+      description: language === 'ar' ? 'معلومات النسخة والتحديثات' : 'Version info & updates',
       action: () => setLocation('/about'),
       testId: 'settings-about',
     },
@@ -202,9 +202,9 @@ export default function Settings() {
             onClick={() => setLocation('/profile')}
             data-testid="button-settings-back"
           >
-            <ArrowRight className="h-5 w-5" />
+            <ArrowRight className={`h-5 w-5 ${language === 'en' ? 'rotate-180' : ''}`} />
           </Button>
-          <h2 className="text-xl font-bold text-foreground">الإعدادات</h2>
+          <h2 className="text-xl font-bold text-foreground">{t('settings')}</h2>
         </div>
       </header>
 
@@ -213,11 +213,11 @@ export default function Settings() {
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
-              إعدادات عامة
+              {language === 'ar' ? 'إعدادات عامة' : 'General Settings'}
             </TabsTrigger>
             <TabsTrigger value="permissions" className="flex items-center gap-2">
               <Lock className="h-4 w-4" />
-              الصلاحيات
+              {language === 'ar' ? 'الصلاحيات' : 'Permissions'}
             </TabsTrigger>
           </TabsList>
           
@@ -271,7 +271,7 @@ export default function Settings() {
                           ) : (
                             <Moon className="h-4 w-4 ml-2" />
                           )}
-                          {theme === 'dark' ? 'فاتح' : 'داكن'}
+                          {theme === 'dark' ? (language === 'ar' ? 'فاتح' : 'Light') : (language === 'ar' ? 'داكن' : 'Dark')}
                         </Button>
                       )}
                       
@@ -303,7 +303,7 @@ export default function Settings() {
             {/* Quick Actions */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">إعدادات إضافية</CardTitle>
+                <CardTitle className="text-lg">{language === 'ar' ? 'إعدادات إضافية' : 'Additional Settings'}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {quickActions.map((action) => {
@@ -318,12 +318,12 @@ export default function Settings() {
                     >
                       <div className="flex items-center gap-3">
                         <Icon className="h-6 w-6 text-primary" />
-                        <div className="text-right">
+                        <div className={language === 'ar' ? 'text-right' : 'text-left'}>
                           <div className="font-medium text-foreground">{action.label}</div>
                           <div className="text-sm text-muted-foreground">{action.description}</div>
                         </div>
                       </div>
-                      <ArrowRight className="h-5 w-5 text-muted-foreground rotate-180" />
+                      <ArrowRight className={`h-5 w-5 text-muted-foreground ${language === 'ar' ? 'rotate-180' : ''}`} />
                     </Button>
                   );
                 })}
@@ -338,7 +338,7 @@ export default function Settings() {
               onClick={() => setShowLogoutConfirm(true)}
             >
               <LogOut className="w-5 h-5" />
-              تسجيل الخروج من الحساب
+              {t('logout')}
             </Button>
           </TabsContent>
           
@@ -346,8 +346,8 @@ export default function Settings() {
             <PermissionsManager onPermissionUpdate={(permission, granted) => {
               console.log(`Permission ${permission} ${granted ? 'granted' : 'denied'}`);
               toast({
-                title: granted ? 'تم منح الإذن' : 'تم رفض الإذن',
-                description: `إذن ${permission} ${granted ? 'مُمنوح' : 'مرفوض'}`,
+                title: granted ? (language === 'ar' ? 'تم منح الإذن' : 'Permission Granted') : (language === 'ar' ? 'تم رفض الإذن' : 'Permission Denied'),
+                description: `${permission}: ${granted ? (language === 'ar' ? 'مُمنوح' : 'Granted') : (language === 'ar' ? 'مرفوض' : 'Denied')}`,
                 variant: granted ? 'default' : 'destructive',
               });
             }} />
@@ -359,29 +359,29 @@ export default function Settings() {
       <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
         <AlertDialogContent className="rounded-2xl max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-right text-lg font-black text-red-600 flex items-center gap-2">
+            <AlertDialogTitle className={`${language === 'ar' ? 'text-right' : 'text-left'} text-lg font-black text-red-600 flex items-center gap-2`}>
               <LogOut className="w-5 h-5" />
-              تأكيد تسجيل الخروج
+              {t('logout_confirm_title')}
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-right text-sm font-semibold text-gray-700 py-3 leading-relaxed">
-              عند تسجيل الخروج سوف يتم حذف كل شيء يتعلق بحساب العميل هذا ومسح جلسة الدخول الحالية. هل أنت متأكد من رغبتك في الخروج؟
+            <AlertDialogDescription className={`${language === 'ar' ? 'text-right' : 'text-left'} text-sm font-semibold text-gray-700 py-3 leading-relaxed`}>
+              {t('logout_confirm_desc')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex items-center gap-2 justify-end">
-            <AlertDialogCancel className="font-bold rounded-xl">إلغاء</AlertDialogCancel>
+            <AlertDialogCancel className="font-bold rounded-xl">{t('cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 setShowLogoutConfirm(false);
                 logout();
                 toast({
-                  title: "تم تسجيل الخروج",
-                  description: "تم تسجيل الخروج وتفريغ البيانات المتعلقة بالحساب بنجاح",
+                  title: t('logout'),
+                  description: language === 'ar' ? "تم تسجيل الخروج وتفريغ البيانات المتعلقة بالحساب بنجاح" : "Successfully logged out",
                 });
                 setLocation('/auth');
               }}
               className="bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl"
             >
-              تأكيد تسجيل الخروج
+              {t('logout')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

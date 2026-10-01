@@ -11,44 +11,44 @@
   --card-foreground: hsl(222.2 84% 4.9%);
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(222.2 84% 4.9%);
-  --primary: hsl(18 90% 50%); /* Saree One orange-red */
+  --primary: hsl(16 100% 50%); /* Saree One vibrant fast-food orange #FF4500/#FF5722 */
   --primary-foreground: hsl(0 0% 100%);
-  --secondary: hsl(18 75% 15%); /* Saree One dark warm */
+  --secondary: hsl(16 80% 18%); /* Saree One deep warm */
   --secondary-foreground: hsl(0 0% 100%);
-  --muted: hsl(18 15% 96%);
-  --muted-foreground: hsl(18 8% 46%);
-  --accent: hsl(18 90% 50%);
-  --accent-foreground: hsl(18 75% 15%);
+  --muted: hsl(20 30% 96%);
+  --muted-foreground: hsl(20 10% 45%);
+  --accent: hsl(16 100% 50%);
+  --accent-foreground: hsl(16 80% 18%);
   --destructive: hsl(0 84.2% 60.2%);
   --destructive-foreground: hsl(210 40% 98%);
-  --border: hsl(18 20% 91%);
-  --input: hsl(18 20% 91%);
-  --ring: hsl(18 90% 50%);
-  --chart-1: hsl(18 90% 50%);
-  --chart-2: hsl(18 75% 15%);
-  --chart-3: hsl(25 90% 58%);
-  --chart-4: hsl(12 88% 55%);
-  --chart-5: hsl(18 50% 30%);
-  --sidebar: hsl(18 8% 97%);
-  --sidebar-foreground: hsl(18 50% 8%);
-  --sidebar-primary: hsl(18 90% 50%);
+  --border: hsl(20 20% 92%);
+  --input: hsl(20 20% 92%);
+  --ring: hsl(16 100% 50%);
+  --chart-1: hsl(16 100% 50%);
+  --chart-2: hsl(16 80% 18%);
+  --chart-3: hsl(25 95% 54%);
+  --chart-4: hsl(12 90% 52%);
+  --chart-5: hsl(16 60% 30%);
+  --sidebar: hsl(20 15% 98%);
+  --sidebar-foreground: hsl(16 50% 8%);
+  --sidebar-primary: hsl(16 100% 50%);
   --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(18 40% 96%);
-  --sidebar-accent-foreground: hsl(18 90% 50%);
-  --sidebar-border: hsl(18 25% 90%);
-  --sidebar-ring: hsl(18 90% 50%);
-  --font-sans: 'Inter', 'Noto Sans Arabic', sans-serif;
+  --sidebar-accent: hsl(20 40% 95%);
+  --sidebar-accent-foreground: hsl(16 100% 50%);
+  --sidebar-border: hsl(20 25% 90%);
+  --sidebar-ring: hsl(16 100% 50%);
+  --font-sans: 'Noto Sans Arabic', 'Inter', sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
-  --radius: 0.75rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(18 90% 50% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(18 90% 50% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(18 90% 50% / 0.00), 0px 1px 2px -1px hsl(18 90% 50% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(18 90% 50% / 0.00), 0px 1px 2px -1px hsl(18 90% 50% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(18 90% 50% / 0.00), 0px 2px 4px -1px hsl(18 90% 50% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(18 90% 50% / 0.00), 0px 4px 6px -1px hsl(18 90% 50% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(18 90% 50% / 0.00), 0px 8px 10px -1px hsl(18 90% 50% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(18 90% 50% / 0.00);
+  --radius: 1rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(16 100% 50% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(16 100% 50% / 0.00);
+  --shadow-sm: 0px 2px 6px 0px rgba(255, 87, 34, 0.06);
+  --shadow: 0px 4px 12px 0px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0px 6px 16px -2px rgba(255, 87, 34, 0.08), 0px 3px 6px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0px 12px 24px -4px rgba(255, 87, 34, 0.12), 0px 6px 12px -2px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0px 20px 32px -4px rgba(255, 87, 34, 0.16);
+  --shadow-2xl: 0px 25px 50px -12px rgba(0, 0, 0, 0.15);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 }
@@ -130,11 +130,43 @@
 
   /* الشريط العلوي للجوال: تدرج برتقالي بلمسة كحلية لمطابقة الشعار */
   .header-gradient {
-    background: linear-gradient(135deg, #F97316 0%, #EA580C 60%, #1A0600 130%);
+    background: linear-gradient(135deg, #FF5722 0%, #F4511E 60%, #E64A19 100%);
   }
 
   .primary-gradient {
-    background: linear-gradient(135deg, #F97316 0%, #EA580C 100%);
+    background: linear-gradient(135deg, #FF6E40 0%, #FF5722 50%, #F4511E 100%);
+  }
+
+  .orange-btn-gradient {
+    background: linear-gradient(135deg, #FF6E40 0%, #FF5722 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 14px 0 rgba(255, 87, 34, 0.35);
+    transition: all 0.2s ease-in-out;
+  }
+  .orange-btn-gradient:hover {
+    background: linear-gradient(135deg, #FF7A50 0%, #F4511E 100%);
+    box-shadow: 0 6px 20px 0 rgba(255, 87, 34, 0.45);
+    transform: translateY(-1px);
+  }
+  .orange-btn-gradient:active {
+    transform: scale(0.98);
+  }
+
+  .saree-curved-header {
+    border-bottom-left-radius: 28px;
+    border-bottom-right-radius: 28px;
+  }
+
+  .saree-card {
+    border-radius: 20px;
+    background: #ffffff;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(255, 87, 34, 0.04);
+    border: 1px solid rgba(255, 87, 34, 0.08);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .saree-card:hover {
+    box-shadow: 0 10px 25px -4px rgba(255, 87, 34, 0.12), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+    transform: translateY(-2px);
   }
 
   .navy-gradient {
@@ -421,4 +453,12 @@
 
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* Custom Leaflet Marker Cleanups */
+.leaflet-div-icon.custom-vehicle-marker,
+.leaflet-div-icon.custom-pickup-marker,
+.leaflet-div-icon.custom-dest-marker {
+  background: transparent !important;
+  border: none !important;
 }

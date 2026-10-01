@@ -407,7 +407,7 @@ router.post("/orders/:orderId/review", async (req, res) => {
       customerPhone,
       rating: Number(rating),
       comment: comment || null,
-      isApproved: false
+      isApproved: true
     };
 
     const newReview = await storage.createRating(reviewData);

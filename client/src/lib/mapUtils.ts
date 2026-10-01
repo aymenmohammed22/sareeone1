@@ -124,28 +124,40 @@ export function getGoogleMapsUrl(options: MapLocationOptions): string {
   return `https://www.google.com/maps/search/?api=1&query=15.3694,44.1910`;
 }
 
+export interface AlternativeMapEventDetail {
+  lat?: string | number | null;
+  lng?: string | number | null;
+  address?: string | null;
+  name?: string;
+  type?: 'customer' | 'restaurant' | 'store' | 'general';
+  phone?: string;
+  orderNumber?: string;
+}
+
 /**
- * فتح خرائط Google بأمان على أجهزة الموبايل والمتصفحات والـ PWA
+ * فتح الخرائط البديلة التفاعلية داخل التطبيق (Leaflet) مع خط ومسار وأسهم إرشاد
+ */
+export function openAlternativeMap(options: AlternativeMapEventDetail): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('sareeone:open-alternative-map', {
+        detail: options,
+      })
+    );
+  }
+}
+
+/**
+ * منع فتح خرائط Google خارج التطبيق أو داخله وتوجيه كافة العمليات للخرائط البديلة (نظام Leaflet البديل)
  */
 export function openInGoogleMaps(options: MapLocationOptions): void {
-  const url = getGoogleMapsUrl(options);
-
-  try {
-    // محاولة الفتح عبر إنشاء عنصر رابط والنقر عليه لتفادي حظر النوافذ المنبثقة
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  } catch (e) {
-    console.warn('Fallback window.open:', e);
-    const win = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!win) {
-      window.location.href = url;
-    }
-  }
+  openAlternativeMap({
+    lat: options.lat,
+    lng: options.lng,
+    address: options.address,
+    name: options.label,
+    type: (options.label?.includes('متجر') || options.label?.includes('مطعم') || options.label?.includes('استلام')) ? 'restaurant' : 'customer',
+  });
 }
 
 /**

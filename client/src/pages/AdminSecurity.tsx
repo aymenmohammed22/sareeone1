@@ -6,7 +6,7 @@ import {
   Mail, Phone, MapPin, Calendar, Clock,
   Lock, Unlock, Bell, MessageSquare, AlertCircle,
   Save, Trash2, Plus, Key, CheckCircle2, ShieldAlert, ShieldCheck,
-  Search, Filter, Download, Copy, Check
+  Search, Filter, Download, Copy, Check, Truck, ExternalLink, Code2, Play
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -73,15 +73,37 @@ export default function AdminSecurity() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null);
+  const [testingTarget, setTestingTarget] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ target: string; valid: boolean; message: string } | null>(null);
+  const [codeTab, setCodeTab] = useState<'kotlin' | 'flutter' | 'manifest'>('kotlin');
+  const [selectedAppTarget, setSelectedAppTarget] = useState<'customer' | 'driver'>('customer');
 
-  const copyToClipboard = (text: string, target: string) => {
+  const copyToClipboard = (text: string, target: string, label: string = "مفتاح API") => {
     navigator.clipboard.writeText(text);
     setCopiedTarget(target);
     toast({
       title: "تم النسخ بنجاح",
-      description: "تم نسخ مفتاح API إلى الحافظة",
+      description: `تم نسخ ${label} إلى الحافظة`,
     });
     setTimeout(() => setCopiedTarget(null), 2500);
+  };
+
+  const testApiKey = async (apiKey: string, target: 'customer' | 'driver') => {
+    try {
+      setTestingTarget(target);
+      const res = await fetch(`/api/public/verify-app-key?apiKey=${encodeURIComponent(apiKey)}`);
+      const data = await res.json();
+      setTestResult({ target, valid: !!data.valid, message: data.message || (data.valid ? 'المفتاح صالح ونشط 100%' : 'المفتاح غير صالح') });
+      toast({
+        title: data.valid ? "فحص ناجح ✓" : "تنبيه الفحص",
+        description: data.message || (data.valid ? "المفتاح صالح ومطابق للسيرفر بدون أي وسيط خارجي" : "المفتاح غير متطابق"),
+        variant: data.valid ? "default" : "destructive",
+      });
+    } catch (err) {
+      setTestResult({ target, valid: false, message: 'فشل الاتصال بالخادم أثناء الفحص' });
+    } finally {
+      setTestingTarget(null);
+    }
   };
 
   const { data: securitySettings, isLoading: isSettingsLoading } = useQuery<SecuritySettings>({
@@ -253,121 +275,653 @@ export default function AdminSecurity() {
         {/* Left 2 cols: Main Security Management & Audit Logs */}
         <div className="lg:col-span-2 space-y-6">
           
-          {/* Mobile App API Keys Card */}
-          <Card className="shadow-sm border-blue-200 bg-blue-50/20 overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4">
-              <CardTitle className="text-base font-bold flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Smartphone className="w-5 h-5 text-blue-200" />
-                  مفاتيح الربط للتطبيق (Android Mobile API Keys)
-                </span>
-                <Badge variant="secondary" className="bg-white/20 text-white border-0 text-[11px]">
-                  جاهز للربط
+          {/* نظام توليد وإدارة مفاتيح API لتطبيقات الجوال (بدون Google أو Firebase) */}
+          <Card className="shadow-md border-blue-200 bg-gradient-to-br from-white via-blue-50/20 to-indigo-50/30 overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white p-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center text-white border border-white/20 shadow-inner">
+                    <Key className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-bold text-white flex items-center gap-2">
+                      نظام توليد وإدارة مفاتيح API لتطبيقات الجوال (بدون Google أو Firebase)
+                    </CardTitle>
+                    <p className="text-blue-100 text-xs mt-0.5">
+                      توليد والتحقق من المفاتيح ذاتياً داخل خادمك 100% لربط وبرمجة تطبيقي العميل والسائق
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-100 border border-emerald-400/40 text-xs px-2.5 py-0.5">
+                  مستقل 100% عن Google & Firebase
                 </Badge>
-              </CardTitle>
-              <CardDescription className="text-blue-100 text-xs mt-1">
-                استخدم هذه المفاتيح في تطبيقي العميل والسائق للربط الآمن والتواصل الدقيق مع السيرفر عبر الهيدر <code className="bg-blue-800/60 px-1 py-0.5 rounded text-white dir-ltr font-mono">X-API-Key</code>
-              </CardDescription>
+              </div>
             </CardHeader>
-            <CardContent className="p-5 space-y-4">
-              
-              {/* Customer App API Key */}
-              <div className="p-4 bg-white rounded-xl border border-blue-100 space-y-2 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
-                    <Label className="font-bold text-sm text-gray-900">مفتاح تطبيق العميل (Customer App Key)</Label>
+            <CardContent className="p-5 space-y-6">
+
+              {/* شرح بيئة العمل المستقلة */}
+              <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="text-xs text-gray-700 leading-relaxed space-y-1">
+                    <p className="font-bold text-gray-900">
+                      🔒 نظام التحقق الذاتي والمباشر (Self-Contained Auth):
+                    </p>
+                    <p>
+                      هذا النظام لا يعتمد نهائياً على Firebase أو Google Services. يتم توليد المفاتيح والتحقق من صحتها وصلاحيتها بالكامل عبر خادمك الخاص. يتيح لك نسخ المفتاح واستخدامه مباشرة في تطبيق الأندرويد لفتح الواجهة المخصصة تلقائياً وتفعيل المحادثات المباشرة والإشعارات الفورية وتتبع الخريطة بسلاسة تامة.
+                    </p>
                   </div>
-                  <span className="text-[11px] text-gray-400 font-mono">{typeof window !== "undefined" ? window.location.origin + "/" : "/"}</span>
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <div className="relative flex-1">
-                    <Input 
-                      readOnly 
-                      value={securitySettings?.customerApiKey || 'جاري التحميل...'} 
-                      className="font-mono text-xs bg-gray-50 dir-ltr text-left pl-3 pr-8 text-blue-900 font-semibold"
-                    />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 text-xs"
-                    onClick={() => securitySettings?.customerApiKey && copyToClipboard(securitySettings.customerApiKey, 'customer')}
-                  >
-                    {copiedTarget === 'customer' ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedTarget === 'customer' ? 'تم النسخ' : 'نسخ المفتاح'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-500 hover:text-red-600 text-xs px-2"
-                    title="إعادة إنشاء مفتاح جديد"
-                    disabled={regenerateKeyMutation.isPending}
-                    onClick={() => {
-                      if (confirm('هل أنت تأكد من إغلاق وإلغاء المفتاح الحالي وإنشاء مفتاح جديد لتطبيق العميل؟')) {
-                        regenerateKeyMutation.mutate('customer');
-                      }
-                    }}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </Button>
                 </div>
               </div>
 
-              {/* Driver App API Key */}
-              <div className="p-4 bg-white rounded-xl border border-indigo-100 space-y-2 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                    <Label className="font-bold text-sm text-gray-900">مفتاح تطبيق السائق (Driver App Key)</Label>
+              {/* بطاقات مفاتيح العميل والسائق */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                
+                {/* 1. مفتاح تطبيق العميل */}
+                <div className="p-4 bg-white rounded-xl border-2 border-blue-200/80 shadow-sm space-y-4 hover:border-blue-400 transition-all">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                        <Smartphone className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-blue-950">تطبيق العميل</h4>
+                        <p className="text-[11px] text-gray-500 font-mono">Customer App Key</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[11px]">
+                      نشط ويعمل
+                    </Badge>
                   </div>
-                  <span className="text-[11px] text-gray-400 font-mono">{typeof window !== "undefined" ? window.location.origin + "/driver" : "/driver"}</span>
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <div className="relative flex-1">
-                    <Input 
-                      readOnly 
-                      value={securitySettings?.driverApiKey || 'جاري التحميل...'} 
-                      className="font-mono text-xs bg-gray-50 dir-ltr text-left pl-3 pr-8 text-indigo-900 font-semibold"
-                    />
+
+                  <div>
+                    <Label className="text-xs text-gray-700 font-semibold block mb-1.5">مفتاح API الخاص بتطبيق العميل:</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Input 
+                        readOnly 
+                        value={securitySettings?.customerApiKey || 'sareeone_cust_app_key_default'} 
+                        className="font-mono text-xs bg-gray-50 dir-ltr text-left pl-2.5 pr-2 text-blue-900 font-bold border-blue-200"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-blue-300 text-blue-700 hover:bg-blue-50 text-xs px-2.5 gap-1 shrink-0"
+                        onClick={() => securitySettings?.customerApiKey && copyToClipboard(securitySettings.customerApiKey, 'customer', 'مفتاح تطبيق العميل')}
+                      >
+                        {copiedTarget === 'customer' ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedTarget === 'customer' ? 'تم' : 'نسخ'}
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs"
-                    onClick={() => securitySettings?.driverApiKey && copyToClipboard(securitySettings.driverApiKey, 'driver')}
-                  >
-                    {copiedTarget === 'driver' ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copiedTarget === 'driver' ? 'تم النسخ' : 'نسخ المفتاح'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-500 hover:text-red-600 text-xs px-2"
-                    title="إعادة إنشاء مفتاح جديد"
-                    disabled={regenerateKeyMutation.isPending}
-                    onClick={() => {
-                      if (confirm('هل أنت تأكد من إغلاق وإلغاء المفتاح الحالي وإنشاء مفتاح جديد لتطبيق السائق؟')) {
-                        regenerateKeyMutation.mutate('driver');
-                      }
-                    }}
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </Button>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-gray-600 font-medium block">رابط الويب فيو المباشر للعميل:</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Input 
+                        readOnly 
+                        value={`${typeof window !== "undefined" ? window.location.origin : ""}/?apiKey=${securitySettings?.customerApiKey || 'sareeone_cust_app_key_default'}`} 
+                        className="font-mono text-[11px] bg-blue-50/50 dir-ltr text-left pl-2 text-gray-700"
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-blue-600 hover:bg-blue-50 text-xs px-2 shrink-0"
+                        title="نسخ الرابط"
+                        onClick={() => copyToClipboard(`${typeof window !== "undefined" ? window.location.origin : ""}/?apiKey=${securitySettings?.customerApiKey || 'sareeone_cust_app_key_default'}`, 'cust_url', 'رابط تطبيق العميل')}
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Test & Regenerate Buttons */}
+                  <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs text-blue-700 border-blue-200 hover:bg-blue-50 gap-1"
+                      disabled={testingTarget === 'customer'}
+                      onClick={() => securitySettings?.customerApiKey && testApiKey(securitySettings.customerApiKey, 'customer')}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                      {testingTarget === 'customer' ? 'جاري الفحص...' : 'فحص صلاحية المفتاح'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs text-red-600 hover:bg-red-50 gap-1"
+                      disabled={regenerateKeyMutation.isPending}
+                      onClick={() => {
+                        if (confirm('هل أنت متأكد من رغبتك في توليد مفتاح جديد لتطبيق العميل؟')) {
+                          regenerateKeyMutation.mutate('customer');
+                        }
+                      }}
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      توليد مفتاح جديد
+                    </Button>
+                  </div>
+
+                  {testResult && testResult.target === 'customer' && (
+                    <div className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${testResult.valid ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                      {testResult.valid ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                      <span>{testResult.message}</span>
+                    </div>
+                  )}
+
+                  {/* الواجهات المدعومة في مفتاح العميل */}
+                  <div className="bg-gray-50 p-2.5 rounded-lg text-[11px] text-gray-600 space-y-1 border border-gray-100">
+                    <p className="font-bold text-gray-800">✨ الواجهات المتاحة للعميل عبر المفتاح:</p>
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      <Badge variant="secondary" className="text-[10px] bg-white">تصفح المطاعم</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">السلة والطلب</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">الدفع الإلكتروني</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">تتبع الطلب بالخريطة</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">محادثة السائق المباشرة</Badge>
+                    </div>
+                  </div>
                 </div>
+
+                {/* 2. مفتاح تطبيق السائق */}
+                <div className="p-4 bg-white rounded-xl border-2 border-orange-200/80 shadow-sm space-y-4 hover:border-orange-400 transition-all">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center font-bold">
+                        <Truck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-orange-950">تطبيق السائق</h4>
+                        <p className="text-[11px] text-gray-500 font-mono">Driver App Key</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-[11px]">
+                      نشط ويعمل
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-gray-700 font-semibold block mb-1.5">مفتاح API الخاص بتطبيق السائق:</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Input 
+                        readOnly 
+                        value={securitySettings?.driverApiKey || 'sareeone_driver_app_key_default'} 
+                        className="font-mono text-xs bg-gray-50 dir-ltr text-left pl-2.5 pr-2 text-orange-900 font-bold border-orange-200"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-orange-300 text-orange-700 hover:bg-orange-50 text-xs px-2.5 gap-1 shrink-0"
+                        onClick={() => securitySettings?.driverApiKey && copyToClipboard(securitySettings.driverApiKey, 'driver', 'مفتاح تطبيق السائق')}
+                      >
+                        {copiedTarget === 'driver' ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedTarget === 'driver' ? 'تم' : 'نسخ'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-gray-600 font-medium block">رابط الويب فيو المباشر للسائق:</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Input 
+                        readOnly 
+                        value={`${typeof window !== "undefined" ? window.location.origin : ""}/driver?apiKey=${securitySettings?.driverApiKey || 'sareeone_driver_app_key_default'}`} 
+                        className="font-mono text-[11px] bg-orange-50/50 dir-ltr text-left pl-2 text-gray-700"
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-orange-600 hover:bg-orange-50 text-xs px-2 shrink-0"
+                        title="نسخ الرابط"
+                        onClick={() => copyToClipboard(`${typeof window !== "undefined" ? window.location.origin : ""}/driver?apiKey=${securitySettings?.driverApiKey || 'sareeone_driver_app_key_default'}`, 'driver_url', 'رابط تطبيق السائق')}
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Test & Regenerate Buttons */}
+                  <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs text-orange-700 border-orange-200 hover:bg-orange-50 gap-1"
+                      disabled={testingTarget === 'driver'}
+                      onClick={() => securitySettings?.driverApiKey && testApiKey(securitySettings.driverApiKey, 'driver')}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" />
+                      {testingTarget === 'driver' ? 'جاري الفحص...' : 'فحص صلاحية المفتاح'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs text-red-600 hover:bg-red-50 gap-1"
+                      disabled={regenerateKeyMutation.isPending}
+                      onClick={() => {
+                        if (confirm('هل أنت متأكد من رغبتك في توليد مفتاح جديد لتطبيق السائق؟')) {
+                          regenerateKeyMutation.mutate('driver');
+                        }
+                      }}
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      توليد مفتاح جديد
+                    </Button>
+                  </div>
+
+                  {testResult && testResult.target === 'driver' && (
+                    <div className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${testResult.valid ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                      {testResult.valid ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                      <span>{testResult.message}</span>
+                    </div>
+                  )}
+
+                  {/* الواجهات المدعومة في مفتاح السائق */}
+                  <div className="bg-gray-50 p-2.5 rounded-lg text-[11px] text-gray-600 space-y-1 border border-gray-100">
+                    <p className="font-bold text-gray-800">✨ الواجهات المتاحة للسائق عبر المفتاح:</p>
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      <Badge variant="secondary" className="text-[10px] bg-white">لوحة تحكم السائق</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">استلام وقبول الطلبات</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">الخرائط البديلة والاتجاهات</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">محادثة العميل المباشرة</Badge>
+                      <Badge variant="secondary" className="text-[10px] bg-white">محفظة وأرباح السائق</Badge>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
-              {/* Instructions */}
-              <div className="bg-white p-3.5 rounded-lg border border-gray-200 text-[12px] text-gray-600 space-y-1.5 dir-rtl">
-                <p className="font-bold text-gray-800 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-green-600" />
-                  كيفية التوصيل في تطبيق الأندرويد (WebView / Native):
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-gray-500 pr-1">
-                  <li><strong>عبر الهيدر:</strong> أضف الهيدر <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800 font-mono text-[11px]">X-API-Key: [مفتاح التطبيق]</code> إلى كافة طلبات الـ HTTP.</li>
-                  <li><strong>عبر الرابط:</strong> يمكنك تمرير <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800 font-mono text-[11px]">?apiKey=[مفتاح التطبيق]</code> في رابط الـ WebView.</li>
-                  <li><strong>فحص الصلاحية:</strong> يمكنك استدعاء <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800 font-mono text-[11px]">GET /api/public/verify-app-key</code> للتحقق المباشر.</li>
-                </ul>
+              {/* دليل برمجة تطبيق الأندرويد وحل مشاكل الصلاحيات (WebView & Permissions Guide) */}
+              <div className="bg-slate-900 text-slate-100 p-5 rounded-2xl border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-orange-500/20 text-orange-400 rounded-lg">
+                      <Code2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-white">دليل حل مشاكل الصلاحيات والربط لتطبيقات الجوال (Android & Flutter)</h4>
+                      <p className="text-[11px] text-slate-400">كود جاهز 100% يحل مشكلة الموقع الجغرافي (GPS)، فتح الواتساب، المكالمات الهاتفية، ورفع الصور</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">تطبيق:</span>
+                    <div className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAppTarget('customer')}
+                        className={`text-xs px-2.5 py-1 rounded-md transition-all ${selectedAppTarget === 'customer' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        العميل
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAppTarget('driver')}
+                        className={`text-xs px-2.5 py-1 rounded-md transition-all ${selectedAppTarget === 'driver' ? 'bg-orange-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        السائق
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* شرح هندسة الصلاحيات والمفتاح */}
+                <div className="p-3.5 bg-slate-800/80 rounded-xl border border-slate-700 text-xs text-slate-300 leading-relaxed space-y-2">
+                  <p className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <span>💡</span>
+                    <span>كيف تحل هذه الأكواد والمفتاح مشاكل الصلاحيات بالكامل؟</span>
+                  </p>
+                  <p>
+                    <strong>1. من جهة الخادم (API Key):</strong> المفتاح يوثق تطبيق الجوال ذاتياً 100% بدون Google أو Firebase، ويقوم بتوجيه السائق تلقائياً إلى واجهة <code className="text-orange-300 font-mono">/driver</code> والعميل للمتجر مع تفعيل وضع التطبيق الأصلي.
+                  </p>
+                  <p>
+                    <strong>2. من جهة الهاتف (WebView Permissions):</strong> نظام أندرويد يمنع الموقع والواتساب والمكالمات داخل الـ WebView ما لم تتم معالجتها برمجياً. الأكواد أدناه مبرمج فيها:
+                    <span className="text-emerald-300 font-medium"> قبول الموقع تلقائياً (GPS)</span>،
+                    <span className="text-emerald-300 font-medium"> تحويل روابط الواتساب والمكالمات الهاتفية لتفتح التطبيقات فوراً دون خطأ شاشة بيضاء</span>،
+                    و<span className="text-emerald-300 font-medium">حفظ تسجيل الدخول في الذاكرة المحلية والكوكي دائماً</span>.
+                  </p>
+                </div>
+
+                {/* تبويبات الأكواد */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setCodeTab('kotlin')}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${codeTab === 'kotlin' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Android (Kotlin / Java)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCodeTab('flutter')}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${codeTab === 'flutter' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Flutter (Dart)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCodeTab('manifest')}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${codeTab === 'manifest' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      AndroidManifest.xml (الصلاحيات)
+                    </button>
+                  </div>
+
+                  {/* 1. Android Kotlin Code */}
+                  {codeTab === 'kotlin' && (
+                    <div className="relative">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="absolute top-2.5 left-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1 h-7 gap-1 z-10"
+                        onClick={() => copyToClipboard(`// MainActivity.kt - معالجة الصلاحيات الكاملة لتطبيق ${selectedAppTarget === 'driver' ? 'السائق' : 'العميل'}
+package com.sareeone.${selectedAppTarget === 'driver' ? 'driver' : 'customer'}
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.webkit.*
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var webView: WebView
+    private val appUrl = "${typeof window !== 'undefined' ? window.location.origin : ''}${selectedAppTarget === 'driver' ? '/driver' : ''}?apiKey=${selectedAppTarget === 'driver' ? (securitySettings?.driverApiKey || 'sareeone_driver_app_key_default') : (securitySettings?.customerApiKey || 'sareeone_cust_app_key_default')}"
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        webView = WebView(this)
+        setContentView(webView)
+
+        // 1. طلب صلاحيات النظام عند بدء التشغيل
+        requestAppPermissions()
+
+        // 2. إعدادات الـ WebView وحفظ الجلسة
+        val settings = webView.settings
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.databaseEnabled = true
+        settings.setGeolocationEnabled(true)
+        settings.useWideViewPort = true
+        settings.loadWithOverviewMode = true
+
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(webView, true)
+
+        // 3. WebChromeClient: الموافقة التلقائية على أذونات الموقع الجغرافي داخل الويب
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
+                // منح الإذن فوراً لصفحة الويب
+                callback?.invoke(origin, true, false)
+            }
+        }
+
+        // 4. WebViewClient: حل فتح الواتساب، المكالمات الهاتفية، وخرائط جوجل بدون شاشة بيضاء
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url?.toString() ?: return false
+
+                // اعتراض روابط الواتساب والمكالمات الهاتفية وفتح التطبيق الأصلي
+                if (url.startsWith("tel:") || url.startsWith("whatsapp:") || 
+                    url.startsWith("mailto:") || url.startsWith("geo:") || 
+                    url.contains("wa.me") || url.contains("whatsapp.com")) {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        startActivity(intent)
+                        return true
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                return false
+            }
+        }
+
+        // 5. تحميل تطبيق الويب مع مفتاح الـ API
+        webView.loadUrl(appUrl)
+    }
+
+    private fun requestAppPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val needed = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), 1001)
+        }
+    }
+
+    override fun onBackPressed() {
+        if (webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            super.onBackPressed()
+        }
+    }
+}`, 'kotlin_code', 'كود أندرويد Kotlin')}
+                      >
+                        {copiedTarget === 'kotlin_code' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedTarget === 'kotlin_code' ? 'تم النسخ' : 'نسخ الكود'}</span>
+                      </Button>
+                      <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-200 dir-ltr text-left overflow-x-auto max-h-72 leading-relaxed">
+{`// MainActivity.kt - حل مشاكل الصلاحيات والواتساب والموقع في أندرويد
+val appUrl = "${typeof window !== 'undefined' ? window.location.origin : ''}${selectedAppTarget === 'driver' ? '/driver' : ''}?apiKey=${selectedAppTarget === 'driver' ? (securitySettings?.driverApiKey || 'sareeone_driver_app_key_default') : (securitySettings?.customerApiKey || 'sareeone_cust_app_key_default')}"
+
+// 1. تفعيل الكوكيز والذاكرة المحلية
+webView.settings.javaScriptEnabled = true
+webView.settings.domStorageEnabled = true
+webView.settings.setGeolocationEnabled(true)
+CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+
+// 2. حل مشكلة أذونات الموقع الجغرافي التلقائية:
+webView.webChromeClient = object : WebChromeClient() {
+    override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
+        callback?.invoke(origin, true, false) // يمنح الـ WebView صلاحية GPS فوراً
+    }
+}
+
+// 3. حل فتح الواتساب والاتصال الهاتفي بدون شاشات بيضاء أو أخطاء:
+webView.webViewClient = object : WebViewClient() {
+    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+        val url = request?.url?.toString() ?: return false
+        if (url.startsWith("tel:") || url.startsWith("whatsapp:") || url.contains("wa.me") || url.startsWith("geo:")) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+            return true
+        }
+        return false
+    }
+}
+
+webView.loadUrl(appUrl)`}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* 2. Flutter Code */}
+                  {codeTab === 'flutter' && (
+                    <div className="relative">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="absolute top-2.5 left-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1 h-7 gap-1 z-10"
+                        onClick={() => copyToClipboard(`// Flutter WebView Screen - حل الصلاحيات والواتساب والهاتف
+import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+class SareeWebViewScreen extends StatefulWidget {
+  @override
+  _SareeWebViewScreenState createState() => _SareeWebViewScreenState();
+}
+
+class _SareeWebViewScreenState extends State<SareeWebViewScreen> {
+  late final WebViewController _controller;
+  final String appUrl = '${typeof window !== 'undefined' ? window.location.origin : ''}${selectedAppTarget === 'driver' ? '/driver' : ''}?apiKey=${selectedAppTarget === 'driver' ? (securitySettings?.driverApiKey || 'sareeone_driver_app_key_default') : (securitySettings?.customerApiKey || 'sareeone_cust_app_key_default')}';
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) async {
+            final url = request.url;
+            // معالجة روابط الواتساب، المكالمات، والخرائط
+            if (url.startsWith('tel:') || 
+                url.startsWith('whatsapp:') || 
+                url.contains('wa.me') || 
+                url.contains('whatsapp.com')) {
+              final uri = Uri.parse(url);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(appUrl));
+  }
+
+  Future<void> _requestPermissions() async {
+    await [
+      Permission.locationWhenInUse,
+      Permission.notification,
+    ].request();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: WebViewWidget(controller: _controller),
+      ),
+    );
+  }
+}`, 'flutter_code', 'كود فلاتر Flutter')}
+                      >
+                        {copiedTarget === 'flutter_code' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedTarget === 'flutter_code' ? 'تم النسخ' : 'نسخ الكود'}</span>
+                      </Button>
+                      <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-200 dir-ltr text-left overflow-x-auto max-h-72 leading-relaxed">
+{`// Flutter: حل مشاكل الصلاحيات والواتساب والهاتف في webview_flutter
+final String appUrl = '${typeof window !== 'undefined' ? window.location.origin : ''}${selectedAppTarget === 'driver' ? '/driver' : ''}?apiKey=${selectedAppTarget === 'driver' ? (securitySettings?.driverApiKey || 'sareeone_driver_app_key_default') : (securitySettings?.customerApiKey || 'sareeone_cust_app_key_default')}';
+
+_controller = WebViewController()
+  ..setJavaScriptMode(JavaScriptMode.unrestricted)
+  ..setNavigationDelegate(
+    NavigationDelegate(
+      onNavigationRequest: (NavigationRequest request) async {
+        final url = request.url;
+        // فتح الواتساب والمكالمات بتطبيقاتها الرسمية بدون أخطاء في الويب فيو:
+        if (url.startsWith('tel:') || url.startsWith('whatsapp:') || url.contains('wa.me')) {
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+          return NavigationDecision.prevent;
+        }
+        return NavigationDecision.navigate;
+      },
+    ),
+  )
+  ..loadRequest(Uri.parse(appUrl));`}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* 3. AndroidManifest.xml Code */}
+                  {codeTab === 'manifest' && (
+                    <div className="relative">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="absolute top-2.5 left-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-2.5 py-1 h-7 gap-1 z-10"
+                        onClick={() => copyToClipboard(`<!-- أذونات الموقع الجغرافي والاتصال والإنترنت في AndroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.sareeone.${selectedAppTarget === 'driver' ? 'driver' : 'customer'}">
+
+    <!-- 1. أذونات الموقع الجغرافي الدقيق لتطبيق السائق والعميل -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- 2. أذونات الإنترنت والشبكة -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 3. أذونات الإشعارات والكاميرا (أندرويد 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- 4. هام جداً لأندرويد 11 فما فوق (API 30+): السماح بفتح الواتساب والاتصال الهاتفي -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="whatsapp" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+    </queries>
+
+    <application
+        android:usesCleartextTraffic="true"
+        android:label="سريع ون">
+        <!-- باقي إعدادات التطبيق -->
+    </application>
+</manifest>`, 'manifest_code', 'ملف AndroidManifest.xml')}
+                      >
+                        {copiedTarget === 'manifest_code' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedTarget === 'manifest_code' ? 'تم النسخ' : 'نسخ الأذونات'}</span>
+                      </Button>
+                      <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-slate-200 dir-ltr text-left overflow-x-auto max-h-72 leading-relaxed">
+{`<!-- AndroidManifest.xml: حل مشكلة أندرويد 11+ التي تمنع فتح الواتساب والموقع -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+<!-- عنصر queries حاسم جداً للسماح لتطبيقك بالتعرف على الواتساب والمكالمات في هواتف أندرويد الحديثة -->
+<queries>
+    <package android:name="com.whatsapp" />
+    <package android:name="com.whatsapp.w4b" />
+    <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="tel" /></intent>
+    <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="whatsapp" /></intent>
+    <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent>
+</queries>`}
+                      </pre>
+                    </div>
+                  )}
+                </div>
               </div>
 
             </CardContent>

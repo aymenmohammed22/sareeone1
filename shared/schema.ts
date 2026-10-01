@@ -125,7 +125,9 @@ export const drivers = pgTable("drivers", {
   allowProfileEdit: boolean("allow_profile_edit").default(true), // السماح للسائق بتعديل ملفه الشخصي
   canViewWallet: boolean("can_view_wallet").default(true), // السماح برؤية المحفظة
   canViewStats: boolean("can_view_stats").default(true), // السماح برؤية الإحصائيات
+  canViewProfile: boolean("can_view_profile").default(true), // السماح برؤية الملف الشخصي
   canToggleAvailability: boolean("can_toggle_availability").default(true), // السماح بتغيير حالة التوفر
+  allowVehicleEdit: boolean("allow_vehicle_edit").default(true), // السماح بتعديل بيانات المركبة
   notes: text("notes"), // ملاحظات عن السائق
   joinDate: timestamp("join_date").defaultNow(), // تاريخ الانضمام
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -273,7 +275,22 @@ export const notifications = pgTable("notifications", {
   message: text("message").notNull(),
   recipientType: varchar("recipient_type", { length: 50 }).notNull(),
   recipientId: text("recipient_id"), // تم التغيير من uuid إلى text لدعم الهوية بالهاتف للمستخدمين غير المسجلين
+  recipientName: text("recipient_name"),
+  allowReplies: boolean("allow_replies").default(true).notNull(),
   orderId: uuid("order_id"),
+  isRead: boolean("is_read").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Notification Replies table - ردود العملاء على الإشعارات
+export const notificationReplies = pgTable("notification_replies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  notificationId: uuid("notification_id").notNull(),
+  senderType: varchar("sender_type", { length: 50 }).notNull(), // 'customer' | 'admin'
+  senderId: text("sender_id"),
+  senderName: varchar("sender_name", { length: 100 }),
+  senderPhone: varchar("sender_phone", { length: 50 }),
+  message: text("message").notNull(),
   isRead: boolean("is_read").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -715,6 +732,11 @@ export const insertDriverSchema = createInsertSchema(drivers).extend({
   currentLocation: true,
   updatedAt: true,
   allowProfileEdit: true,
+  allowVehicleEdit: true,
+  canViewProfile: true,
+  canViewWallet: true,
+  canViewStats: true,
+  canToggleAvailability: true,
   notes: true,
   joinDate: true,
 });
@@ -776,10 +798,24 @@ export const insertNotificationSchema = createInsertSchema(notifications).partia
   id: true,
   createdAt: true,
   isRead: true,
+  allowReplies: true,
+  recipientName: true,
 });
 export const selectNotificationSchema = createSelectSchema(notifications);
 export type Notification = z.infer<typeof selectNotificationSchema>;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+export const insertNotificationReplySchema = createInsertSchema(notificationReplies).partial({
+  id: true,
+  createdAt: true,
+  isRead: true,
+  senderId: true,
+  senderName: true,
+  senderPhone: true,
+});
+export const selectNotificationReplySchema = createSelectSchema(notificationReplies);
+export type NotificationReply = z.infer<typeof selectNotificationReplySchema>;
+export type InsertNotificationReply = z.infer<typeof insertNotificationReplySchema>;
 
 export const insertWalletSchema = createInsertSchema(wallets).partial({
   id: true,
@@ -1167,20 +1203,28 @@ export type InsertDeliveryDiscount = z.infer<typeof insertDeliveryDiscountSchema
 // Messages table for chat
 export const messages = pgTable("messages", {
   id: uuid("id").primaryKey().defaultRandom(),
-  orderId: uuid("order_id").references(() => orders.id),
-  senderId: uuid("sender_id").notNull(),
+  orderId: text("order_id"),
+  senderId: text("sender_id").notNull(),
   senderType: varchar("sender_type", { length: 50 }).notNull(), // customer, driver, restaurant, admin
-  receiverId: uuid("receiver_id").notNull(),
+  receiverId: text("receiver_id").notNull(),
   receiverType: varchar("receiver_type", { length: 50 }).notNull(), // customer, driver, restaurant, admin
   content: text("content").notNull(),
+  isDelivered: boolean("is_delivered").default(false).notNull(),
   isRead: boolean("is_read").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertMessageSchema = createInsertSchema(messages).partial({
-  id: true,
-  createdAt: true,
-  isRead: true,
+export const insertMessageSchema = z.object({
+  id: z.string().optional(),
+  orderId: z.string().nullable().optional(),
+  senderId: z.string().min(1, "معرف المرسل مطلوب"),
+  senderType: z.string().min(1, "نوع المرسل مطلوب"),
+  receiverId: z.string().min(1, "معرف المستقبل مطلوب"),
+  receiverType: z.string().min(1, "نوع المستقبل مطلوب"),
+  content: z.string().min(1, "محتوى الرسالة لا يمكن أن يكون فارغاً"),
+  isDelivered: z.boolean().optional(),
+  isRead: z.boolean().optional(),
+  createdAt: z.union([z.date(), z.string()]).optional(),
 });
 export const selectMessageSchema = createSelectSchema(messages);
 export type Message = z.infer<typeof selectMessageSchema>;

@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { 
   MapPin, Phone, Clock, CheckCircle, Bell, Package, DollarSign, User, 
   BarChart3, Navigation, LogOut, Wallet, Menu, X, ChevronRight,
-  TrendingUp, Award, Calendar, Eye, EyeOff, AlertCircle
+  TrendingUp, Award, Calendar, Eye, EyeOff, AlertCircle, Share2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/utils';
+import ShareDriverAppModal from '@/components/ShareDriverAppModal';
 
 interface OrderItem {
   id: string;
@@ -89,6 +90,7 @@ const STEPS = [
 export default function DriverApp() {
   const { toast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('available');
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
@@ -464,6 +466,15 @@ export default function DriverApp() {
             </button>
 
             <button
+              onClick={() => setIsShareModalOpen(true)}
+              className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all border border-emerald-200 flex items-center gap-1.5 font-bold text-xs"
+              title="مشاركة التطبيق مع السائقين"
+            >
+              <Share2 size={18} />
+              <span>مشاركة التطبيق</span>
+            </button>
+
+            <button
               onClick={handleLogout}
               className="p-2.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all border border-red-100"
               title="تسجيل الخروج"
@@ -532,6 +543,15 @@ export default function DriverApp() {
               </button>
 
               <button
+                onClick={() => setIsShareModalOpen(true)}
+                className="p-2 hover:bg-emerald-50 text-emerald-700 bg-emerald-50/50 rounded-lg transition-colors border border-emerald-200 flex items-center gap-1 text-xs font-bold"
+                title="مشاركة التطبيق مع السائقين"
+              >
+                <Share2 size={16} />
+                <span className="hidden sm:inline">مشاركة</span>
+              </button>
+
+              <button
                 onClick={handleLogout}
                 className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
                 title="تسجيل الخروج"
@@ -563,6 +583,13 @@ export default function DriverApp() {
           )}
         </div>
       </div>
+
+      <ShareDriverAppModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        driverName={driver?.name || 'سائق'}
+        driverId={driverId}
+      />
     </div>
   );
 
@@ -606,7 +633,15 @@ export default function DriverApp() {
           })}
         </nav>
 
-        <div className="p-4 border-t bg-gray-50">
+        <div className="p-4 border-t bg-gray-50 space-y-3">
+          <button
+            onClick={() => setIsShareModalOpen(true)}
+            className="w-full flex items-center justify-center gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 font-bold text-xs h-9 rounded-xl transition-all shadow-xs"
+          >
+            <Share2 size={16} className="text-emerald-600" />
+            <span>مشاركة التطبيق مع السائقين</span>
+          </button>
+
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">أرباح اليوم:</span>

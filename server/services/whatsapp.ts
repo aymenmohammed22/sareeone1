@@ -1,8 +1,9 @@
 import { storage } from '../storage';
+import { whatsAppBotGateway } from './whatsappBotGateway';
 
 export interface SendOtpResult {
   success: boolean;
-  deliveryMethod: 'meta_cloud_api' | 'direct_link' | 'sms' | 'demo';
+  deliveryMethod: 'whatsapp_bot' | 'meta_cloud_api' | 'direct_link' | 'sms' | 'demo';
   messageId?: string;
   error?: string;
   whatsappUrl: string;
@@ -64,7 +65,8 @@ export async function sendWhatsAppOtp({
   const senderNumberSetting = await storage.getUiSetting('otp_whatsapp_number');
   const templateNameSetting = await storage.getUiSetting('whatsapp_template_name');
 
-  const accessToken = accessTokenSetting?.value?.trim() || DEFAULT_WHATSAPP_ACCESS_TOKEN;
+  const customAccessToken = accessTokenSetting?.value?.trim();
+  const accessToken = customAccessToken || DEFAULT_WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = phoneNumberIdSetting?.value?.trim() || DEFAULT_WHATSAPP_PHONE_NUMBER_ID;
   const whatsappSender = senderNumberSetting?.value?.trim() || DEFAULT_WHATSAPP_SENDER_NUMBER;
   const templateName = templateNameSetting?.value?.trim() || '';
@@ -81,16 +83,35 @@ export async function sendWhatsAppOtp({
   // رابط الواتساب المباشر للعميل
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMsg}`;
 
-  // محاولة الإرسال عبر Meta Cloud API إذا تم توفير معرّف رقم الهاتف ورمز الوصول
-  if (accessToken && phoneNumberId) {
+  // 1. الأولوية الأولى: إرسال عبر بوت واتساب السيرفر التلقائي (المجاني) إذا كان متصلاً
+  const botStatus = whatsAppBotGateway.getStatus();
+  if (botStatus.status === 'connected') {
+    try {
+      console.log(`🤖 [WhatsApp Bot Gateway] إرسال كود OTP مباشرة إلى: ${formattedPhone}`);
+      const botResult = await whatsAppBotGateway.sendOtp(formattedPhone, code, purpose as any);
+      if (botResult.success) {
+        return {
+          success: true,
+          deliveryMethod: 'whatsapp_bot',
+          messageId: botResult.messageId,
+          whatsappUrl,
+          whatsappSender: botStatus.phoneNumber || whatsappSender,
+          formattedPhone
+        };
+      }
+    } catch (botErr) {
+      console.warn('⚠️ [WhatsApp Bot Gateway] حدث خطأ أثناء الإرسال عبر البوت، الانتقال للخيارات الأخرى:', botErr);
+    }
+  }
+
+  // محاولة الإرسال عبر Meta Cloud API فقط إذا قام المستخدم بتوفير رمز وصول مخصص في الإعدادات
+  if (customAccessToken && phoneNumberId) {
     try {
       console.log(`🌐 [WhatsApp Cloud API] جاري إرسال رمز OTP إلى: ${formattedPhone} عبر معرّف: ${phoneNumberId}`);
 
       let payload: any;
 
       if (templateName) {
-        // إرسال عبر قالب Meta معتمد
-        // القوالب في Meta تدعم تمرير رمز التحقق كمتغير في الـ body
         payload = {
           messaging_product: "whatsapp",
           recipient_type: "individual",
@@ -112,7 +133,6 @@ export async function sendWhatsAppOtp({
           }
         };
       } else {
-        // إرسال كرسالة نصية مباشرة
         payload = {
           messaging_product: "whatsapp",
           recipient_type: "individual",
@@ -148,11 +168,14 @@ export async function sendWhatsAppOtp({
         };
       } else {
         const errorMsg = metaResult?.error?.message || metaResult?.error?.error_user_msg || `فشل الإرسال: رمز الاستجابة ${metaResponse.status}`;
-        console.warn(`⚠️ [WhatsApp Cloud API] تنبيه استجابة Meta:`, JSON.stringify(metaResult));
+        if (metaResult?.error?.code === 190) {
+          console.info(`ℹ️ [WhatsApp Cloud API] رمز وصول Meta منتهي الصلاحية (OAuthException 190). تم التبديل بسلاسة إلى الرابط المباشر.`);
+        } else {
+          console.warn(`⚠️ [WhatsApp Cloud API] تنبيه استجابة Meta:`, JSON.stringify(metaResult));
+        }
         
-        // في حال فشل الإرسال السحابي (مثل انتهاء صلاحية الرمز أو رقم الهاتف غير مسجل في الاختبار)، يتم الاعتماد على الرابط المباشر
         return {
-          success: true, // نرجع true لكي يستمر العميل عبر الرابط المباشر للواتساب
+          success: true,
           deliveryMethod: 'direct_link',
           error: errorMsg,
           whatsappUrl,

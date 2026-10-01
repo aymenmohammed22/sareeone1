@@ -14,6 +14,7 @@ import {
   type Favorites, type InsertFavorites,
   type AdminUser, type InsertAdminUser,
   type Notification, type InsertNotification,
+  type NotificationReply, type InsertNotificationReply,
   // إضافة الأنواع الجديدة
   type DriverBalance, type InsertDriverBalance,
   type DriverTransaction, type InsertDriverTransaction,
@@ -31,6 +32,7 @@ import {
   type WithdrawalRequest, type InsertWithdrawalRequest
 } from "../shared/schema";
 import { randomUUID } from "crypto";
+import { matchesArabic } from "./utils/arabic-search";
 
 export interface IStorage {
   // Users
@@ -112,6 +114,7 @@ export interface IStorage {
   getUiSettings(): Promise<UiSettings[]>;
   getUiSetting(key: string): Promise<UiSettings | undefined>;
   updateUiSetting(key: string, value: string): Promise<UiSettings | undefined>;
+  setUiSetting(key: string, value: string): Promise<UiSettings | undefined>;
   createUiSetting(setting: InsertUiSettings): Promise<UiSettings>;
   deleteUiSetting(key: string): Promise<boolean>;
 
@@ -126,6 +129,7 @@ export interface IStorage {
   createRating(rating: InsertRating): Promise<Rating>;
   updateRating(id: string, rating: Partial<InsertRating>): Promise<Rating | undefined>;
   deleteRating(id: string): Promise<boolean>;
+  recalculateRestaurantRating(restaurantId: string): Promise<void>;
 
   // Driver Reviews
   getDriverReviews(driverId?: string): Promise<any[]>;
@@ -167,6 +171,12 @@ export interface IStorage {
   // Enhanced notification methods
   getNotifications(recipientType?: string, recipientId?: string, unread?: boolean): Promise<Notification[]>;
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
+  updateNotificationAllowReplies(id: string, allowReplies: boolean): Promise<Notification | undefined>;
+  createNotificationReply(reply: InsertNotificationReply): Promise<NotificationReply>;
+  getNotificationReplies(notificationId?: string): Promise<NotificationReply[]>;
+  getAllNotificationReplies(): Promise<NotificationReply[]>;
+  deleteNotificationReply(id: string): Promise<boolean>;
+  markNotificationReplyAsRead(id: string): Promise<boolean>;
 
   // Search methods
   searchRestaurants(query: string, category?: string): Promise<Restaurant[]>;
@@ -255,8 +265,14 @@ export interface IStorage {
 
   // Chat/Messages
   getMessages(orderId: string): Promise<Message[]>;
+  getAdminChatMessages(userId: string, userType: string): Promise<Message[]>;
+  getAdminConversations(): Promise<any[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   markMessagesAsRead(orderId: string, receiverId: string): Promise<void>;
+  markMessagesAsDelivered?(receiverId: string, receiverType?: string, orderId?: string): Promise<void>;
+  markUserMessagesAsRead(userId: string, userType?: string): Promise<void>;
+  markAdminMessagesAsReadForUser(userId: string, userType: string): Promise<void>;
+  markOrderMessagesAsRead(orderId: string, readerType: string, readerId?: string): Promise<void>;
 
   // Audit Logs
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
@@ -342,6 +358,8 @@ export class MemStorage {
   private paymentMethodsMap: Map<string, any>;
   private paymentGatewaysMap: Map<string, any>;
   private paymentMethodDocumentsMap: Map<string, any>;
+  private notificationRepliesMap: Map<string, NotificationReply>;
+  private messagesMap: Map<string, Message>;
 
   // Add db property for compatibility with routes that access it directly
   get db() {
@@ -389,6 +407,8 @@ export class MemStorage {
     this.paymentMethodDocumentsMap = new Map();
     this.customerWalletsMap = new Map();
     this.customerWalletTransactionsMap = new Map();
+    this.notificationRepliesMap = new Map();
+    this.messagesMap = new Map();
     
     this.initializeData();
   }
@@ -413,7 +433,7 @@ export class MemStorage {
         description: "مطعم يمني تقليدي متخصص في الأطباق الشعبية",
         image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=400",
         rating: "4.8",
-        reviewCount: 4891,
+        reviewCount: 4,
         deliveryTime: "40-60 دقيقة",
         isOpen: true,
         minimumOrder: "25",
@@ -438,8 +458,8 @@ export class MemStorage {
         name: "حلويات الشام",
         description: "أفضل الحلويات الشامية والعربية",
         image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=400",
-        rating: "4.6",
-        reviewCount: 2341,
+        rating: "4.7",
+        reviewCount: 3,
         deliveryTime: "30-45 دقيقة",
         isOpen: true,
         minimumOrder: "15",
@@ -464,8 +484,8 @@ export class MemStorage {
         name: "مقهى العروبة",
         description: "مقهى شعبي بالطابع العربي الأصيل",
         image: "https://images.unsplash.com/photo-1442512595331-e89e73853f31?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=400",
-        rating: "4.5",
-        reviewCount: 1876,
+        rating: "4.3",
+        reviewCount: 3,
         deliveryTime: "يفتح في 8:00 ص",
         isOpen: true,
         minimumOrder: "20",
@@ -681,6 +701,124 @@ export class MemStorage {
     ];
 
     adminUsers.forEach(admin => this.adminUsers.set(admin.id, { ...admin, permissions: null } as any));
+
+    // Initialize default customer ratings matching restaurants
+    const defaultRatings: Rating[] = [
+      {
+        id: randomUUID(),
+        restaurantId: "1",
+        orderId: null,
+        customerName: "محمد اليافعي",
+        customerPhone: "777111222",
+        rating: 5,
+        comment: "أفضل خدمة وتوصيل سريع جداً، الأكل ساخن ولذيذ!",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000 * 3)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "1",
+        orderId: null,
+        customerName: "سارة أحمد",
+        customerPhone: "777333444",
+        rating: 5,
+        comment: "العربكة ممتازة جداً ونظافة وترتيب عالي المستوى.",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000 * 2)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "1",
+        orderId: null,
+        customerName: "عبدالله الشميري",
+        customerPhone: "777555666",
+        rating: 5,
+        comment: "تجربة رائعة وأسعار مناسبة وسرعة استجابة من المتجر.",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "1",
+        orderId: null,
+        customerName: "خالد الصبري",
+        customerPhone: "777777888",
+        rating: 4,
+        comment: "ممتاز جداً والوجبة لذيذة وسريعة.",
+        isApproved: true,
+        createdAt: new Date()
+      },
+      // حلويات الشام (id: "2")
+      {
+        id: randomUUID(),
+        restaurantId: "2",
+        orderId: null,
+        customerName: "أمير المعمري",
+        customerPhone: "771234560",
+        rating: 5,
+        comment: "حلويات شامية أصلية وطازجة ومميزة جداً.",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000 * 2)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "2",
+        orderId: null,
+        customerName: "فاطمة النهمي",
+        customerPhone: "771234561",
+        rating: 5,
+        comment: "الكنافة والبقلاوة روعة، شكراً لتطبيق السريع ون.",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "2",
+        orderId: null,
+        customerName: "هشام الذبحاني",
+        customerPhone: "771234562",
+        rating: 4,
+        comment: "طعم رائع وتغليف ممتاز.",
+        isApproved: true,
+        createdAt: new Date()
+      },
+      // مقهى العروبة (id: "3")
+      {
+        id: randomUUID(),
+        restaurantId: "3",
+        orderId: null,
+        customerName: "بسام الأكوع",
+        customerPhone: "772223344",
+        rating: 5,
+        comment: "قهوة مميزة وشاي عدني أصيل.",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000 * 2)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "3",
+        orderId: null,
+        customerName: "أيوب الحداد",
+        customerPhone: "773334455",
+        rating: 4,
+        comment: "جلسة رايقة ومشروبات ممتازة.",
+        isApproved: true,
+        createdAt: new Date(Date.now() - 86400000)
+      },
+      {
+        id: randomUUID(),
+        restaurantId: "3",
+        orderId: null,
+        customerName: "يحيى الكبسي",
+        customerPhone: "774445566",
+        rating: 4,
+        comment: "خدمة جيدة وسريعة.",
+        isApproved: true,
+        createdAt: new Date()
+      }
+    ];
+
+    defaultRatings.forEach(r => this.ratings.set(r.id, r));
   }
 
   // ==================== دوال نظام الرصيد والعمولات ====================
@@ -1021,8 +1159,15 @@ export class MemStorage {
     if (restaurant.openingTime !== undefined) updates.openingTime = restaurant.openingTime ?? null;
     if (restaurant.closingTime !== undefined) updates.closingTime = restaurant.closingTime ?? null;
     if (restaurant.workingDays !== undefined) updates.workingDays = restaurant.workingDays ?? null;
-    if (restaurant.isTemporarilyClosed !== undefined) updates.isTemporarilyClosed = restaurant.isTemporarilyClosed;
-    if (restaurant.temporaryCloseReason !== undefined) updates.temporaryCloseReason = restaurant.temporaryCloseReason ?? null;
+    if (restaurant.isTemporarilyClosed !== undefined) {
+      updates.isTemporarilyClosed = restaurant.isTemporarilyClosed;
+      if (!restaurant.isTemporarilyClosed) {
+        updates.temporaryCloseReason = null;
+      }
+    }
+    if (restaurant.temporaryCloseReason !== undefined && updates.isTemporarilyClosed !== false) {
+      updates.temporaryCloseReason = restaurant.temporaryCloseReason ? String(restaurant.temporaryCloseReason).trim() : null;
+    }
     if (restaurant.latitude !== undefined) updates.latitude = restaurant.latitude?.toString() ?? null;
     if (restaurant.longitude !== undefined) updates.longitude = restaurant.longitude?.toString() ?? null;
     if (restaurant.address !== undefined) updates.address = restaurant.address ?? null;
@@ -1080,6 +1225,10 @@ export class MemStorage {
   }
 
   // Menu Items
+  async getAllMenuItems(): Promise<MenuItem[]> {
+    return Array.from(this.menuItems.values());
+  }
+
   async getMenuItems(restaurantId: string): Promise<MenuItem[]> {
     return Array.from(this.menuItems.values()).filter(item => item.restaurantId === restaurantId);
   }
@@ -1323,6 +1472,8 @@ export class MemStorage {
       allowProfileEdit: driver.allowProfileEdit ?? true,
       canViewWallet: driver.canViewWallet ?? true,
       canViewStats: driver.canViewStats ?? true,
+      canViewProfile: driver.canViewProfile ?? true,
+      allowVehicleEdit: driver.allowVehicleEdit ?? true,
       canToggleAvailability: driver.canToggleAvailability ?? true,
       paymentMode: driver.paymentMode ?? "commission",
       salaryAmount: driver.salaryAmount ?? "0",
@@ -1448,6 +1599,10 @@ export class MemStorage {
     return newSetting;
   }
 
+  async setUiSetting(key: string, value: string): Promise<UiSettings | undefined> {
+    return this.updateUiSetting(key, value);
+  }
+
   async createUiSetting(setting: InsertUiSettings): Promise<UiSettings> {
     const id = randomUUID();
     const newSetting: UiSettings = {
@@ -1538,6 +1693,31 @@ export class MemStorage {
     return ratings;
   }
 
+  async recalculateRestaurantRating(restaurantId: string): Promise<void> {
+    const restaurantRatings = Array.from(this.ratings.values()).filter(
+      r => r.restaurantId === restaurantId
+    );
+    const rest = this.restaurants.get(restaurantId);
+    if (!rest) return;
+
+    if (restaurantRatings.length === 0) {
+      rest.reviewCount = 0;
+      this.restaurants.set(restaurantId, rest);
+      return;
+    }
+
+    const approved = restaurantRatings.filter(r => r.isApproved !== false);
+    const targetRatings = approved.length > 0 ? approved : restaurantRatings;
+
+    const sum = targetRatings.reduce((acc, r) => acc + (Number(r.rating) || 0), 0);
+    const avg = (sum / targetRatings.length).toFixed(1);
+
+    rest.rating = avg;
+    rest.reviewCount = targetRatings.length;
+    rest.updatedAt = new Date();
+    this.restaurants.set(restaurantId, rest);
+  }
+
   async createRating(rating: InsertRating): Promise<Rating> {
     const id = randomUUID();
     const newRating: Rating = {
@@ -1547,10 +1727,13 @@ export class MemStorage {
       restaurantId: rating.restaurantId ?? null,
       customerPhone: rating.customerPhone ?? null,
       comment: rating.comment ?? null,
-      isApproved: rating.isApproved ?? false,
+      isApproved: rating.isApproved ?? true,
       createdAt: new Date()
     };
     this.ratings.set(id, newRating);
+    if (newRating.restaurantId) {
+      await this.recalculateRestaurantRating(newRating.restaurantId);
+    }
     return newRating;
   }
 
@@ -1559,11 +1742,19 @@ export class MemStorage {
     if (!existing) return undefined;
     const updated = { ...existing, ...rating };
     this.ratings.set(id, updated);
+    if (updated.restaurantId) {
+      await this.recalculateRestaurantRating(updated.restaurantId);
+    }
     return updated;
   }
 
   async deleteRating(id: string): Promise<boolean> {
-    return this.ratings.delete(id);
+    const existing = this.ratings.get(id);
+    const deleted = this.ratings.delete(id);
+    if (deleted && existing?.restaurantId) {
+      await this.recalculateRestaurantRating(existing.restaurantId);
+    }
+    return deleted;
   }
 
   // Driver Reviews
@@ -1809,6 +2000,8 @@ export class MemStorage {
       ...notification,
       id,
       recipientId: notification.recipientId ?? null,
+      recipientName: notification.recipientName ?? null,
+      allowReplies: notification.allowReplies ?? true,
       orderId: notification.orderId ?? null,
       isRead: notification.isRead ?? false,
       createdAt: new Date()
@@ -1840,6 +2033,238 @@ export class MemStorage {
     const updated = { ...notification, isRead: true };
     this.notifications.set(id, updated);
     return updated;
+  }
+
+  async updateNotificationAllowReplies(id: string, allowReplies: boolean): Promise<Notification | undefined> {
+    const notification = this.notifications.get(id);
+    if (!notification) return undefined;
+    const updated = { ...notification, allowReplies };
+    this.notifications.set(id, updated);
+    return updated;
+  }
+
+  async createNotificationReply(reply: InsertNotificationReply): Promise<NotificationReply> {
+    const id = randomUUID();
+    const newReply: NotificationReply = {
+      id,
+      notificationId: reply.notificationId,
+      senderType: reply.senderType,
+      senderId: reply.senderId ?? null,
+      senderName: reply.senderName ?? null,
+      senderPhone: reply.senderPhone ?? null,
+      message: reply.message,
+      isRead: reply.isRead ?? false,
+      createdAt: new Date(),
+    };
+    this.notificationRepliesMap.set(id, newReply);
+
+    const wsManager = (global as any).WS_MANAGER;
+    if (wsManager) {
+      wsManager.sendToAdmin('NEW_NOTIFICATION_REPLY', newReply);
+      wsManager.broadcast('NEW_NOTIFICATION_REPLY', newReply);
+    }
+    return newReply;
+  }
+
+  async getNotificationReplies(notificationId?: string): Promise<NotificationReply[]> {
+    let replies = Array.from(this.notificationRepliesMap.values());
+    if (notificationId) {
+      replies = replies.filter(r => r.notificationId === notificationId);
+    }
+    return replies.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
+  async getAllNotificationReplies(): Promise<NotificationReply[]> {
+    return Array.from(this.notificationRepliesMap.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async deleteNotificationReply(id: string): Promise<boolean> {
+    return this.notificationRepliesMap.delete(id);
+  }
+
+  async markNotificationReplyAsRead(id: string): Promise<boolean> {
+    const reply = this.notificationRepliesMap.get(id);
+    if (!reply) return false;
+    this.notificationRepliesMap.set(id, { ...reply, isRead: true });
+    return true;
+  }
+
+  // Chat/Messages
+  async getMessages(orderId: string): Promise<Message[]> {
+    return Array.from(this.messagesMap.values())
+      .filter(m => m.orderId === orderId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
+  async getAdminChatMessages(userId: string, userType: string): Promise<Message[]> {
+    const rawId = String(userId || '').trim();
+    const cleanId = rawId.replace(/\D/g, '');
+    return Array.from(this.messagesMap.values())
+      .filter(m => {
+        const sId = String(m.senderId || '').trim();
+        const rId = String(m.receiverId || '').trim();
+        const sClean = sId.replace(/\D/g, '');
+        const rClean = rId.replace(/\D/g, '');
+
+        const isSenderMatch = sId === rawId || (cleanId.length >= 7 && sClean === cleanId) || (cleanId.length >= 7 && sClean.endsWith(cleanId.slice(-7)));
+        const isReceiverMatch = rId === rawId || (cleanId.length >= 7 && rClean === cleanId) || (cleanId.length >= 7 && rClean.endsWith(cleanId.slice(-7)));
+
+        return (
+          (isSenderMatch && (m.receiverType === 'admin' || m.receiverId === 'admin')) ||
+          (isReceiverMatch && (m.senderType === 'admin' || m.senderId === 'admin')) ||
+          (isSenderMatch && userType && m.senderType === userType) ||
+          (isReceiverMatch && userType && m.receiverType === userType)
+        );
+      })
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
+  async getAdminConversations(): Promise<any[]> {
+    const allMessages = Array.from(this.messagesMap.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    const conversations = new Map<string, any>();
+    allMessages.forEach(msg => {
+      // Only include messages involving admin/support
+      const isAdminRelated = msg.senderType === 'admin' || msg.receiverType === 'admin' || msg.receiverId === 'admin';
+      if (!isAdminRelated) return; // Exclude customer-driver chats
+
+      const otherUserId = msg.senderType === 'admin' ? msg.receiverId : msg.senderId;
+      const otherUserType = msg.senderType === 'admin' ? msg.receiverType : msg.senderType;
+      const key = `${otherUserType}:${otherUserId}`;
+      
+      const isUnread = !msg.isRead && (msg.receiverType === 'admin' || msg.receiverId === 'admin');
+
+      if (!conversations.has(key)) {
+        conversations.set(key, {
+          userId: otherUserId,
+          userType: otherUserType,
+          lastMessage: msg.content,
+          lastMessageAt: msg.createdAt,
+          isRead: msg.senderType === 'admin' ? true : msg.isRead,
+          unreadCount: isUnread ? 1 : 0,
+          orderId: msg.orderId || null,
+        });
+      } else {
+        const item = conversations.get(key);
+        if (isUnread && item) {
+          item.unreadCount = (item.unreadCount || 0) + 1;
+        }
+      }
+    });
+    
+    return Array.from(conversations.values());
+  }
+
+  async createMessage(message: InsertMessage): Promise<Message> {
+    const id = randomUUID();
+    const newMessage: Message = {
+      id,
+      ...message,
+      orderId: message.orderId || null,
+      isDelivered: message.isDelivered ?? false,
+      isRead: message.isRead ?? false,
+      createdAt: new Date()
+    };
+    this.messagesMap.set(id, newMessage);
+    return newMessage;
+  }
+
+  async markMessagesAsRead(orderId: string, receiverId: string): Promise<void> {
+    Array.from(this.messagesMap.values())
+      .filter(m => m.orderId === orderId && m.receiverId === receiverId)
+      .forEach(m => {
+        this.messagesMap.set(m.id, { ...m, isRead: true, isDelivered: true });
+      });
+  }
+
+  async markMessagesAsDelivered(receiverId: string, receiverType?: string, orderId?: string): Promise<void> {
+    const rawTarget = String(receiverId || '').trim();
+    const cleanDigits = rawTarget.replace(/\D/g, '');
+
+    Array.from(this.messagesMap.values())
+      .filter(m => {
+        if (m.isDelivered) return false;
+        if (orderId && m.orderId !== orderId) return false;
+        if (receiverType && m.receiverType && m.receiverType !== receiverType) return false;
+        if (!rawTarget) return true;
+
+        const mRecId = String(m.receiverId || '').trim();
+        const mDigits = mRecId.replace(/\D/g, '');
+
+        if (mRecId === rawTarget) return true;
+        if (cleanDigits.length >= 7 && mDigits.length >= 7) {
+          if (cleanDigits === mDigits || cleanDigits.endsWith(mDigits.slice(-7)) || mDigits.endsWith(cleanDigits.slice(-7))) {
+            return true;
+          }
+        }
+        return false;
+      })
+      .forEach(m => {
+        this.messagesMap.set(m.id, { ...m, isDelivered: true });
+      });
+  }
+
+  async markUserMessagesAsRead(userId: string, userType?: string): Promise<void> {
+    const rawId = String(userId || '').trim();
+    const cleanId = rawId.replace(/\D/g, '');
+
+    Array.from(this.messagesMap.values())
+      .filter(m => {
+        const sId = String(m.senderId || '').trim();
+        const sClean = sId.replace(/\D/g, '');
+        const isSenderMatch = sId === rawId || (cleanId.length >= 7 && sClean === cleanId) || (cleanId.length >= 7 && sClean.endsWith(cleanId.slice(-7)));
+        return isSenderMatch && !m.isRead;
+      })
+      .forEach(m => {
+        this.messagesMap.set(m.id, { ...m, isRead: true, isDelivered: true });
+      });
+  }
+
+  async markAdminMessagesAsReadForUser(userId: string, userType: string): Promise<void> {
+    const rawId = String(userId || '').trim();
+    const cleanId = rawId.replace(/\D/g, '');
+
+    Array.from(this.messagesMap.values())
+      .filter(m => {
+        const rId = String(m.receiverId || '').trim();
+        const rClean = rId.replace(/\D/g, '');
+        const isReceiverMatch = rId === rawId || (cleanId.length >= 7 && rClean === cleanId) || (cleanId.length >= 7 && rClean.endsWith(cleanId.slice(-7))) || m.receiverType === userType;
+        return m.senderType === 'admin' && isReceiverMatch && !m.isRead;
+      })
+      .forEach(m => {
+        this.messagesMap.set(m.id, { ...m, isRead: true, isDelivered: true });
+      });
+  }
+
+  async markOrderMessagesAsRead(orderId: string, readerType: string, readerId?: string): Promise<void> {
+    const targetOrderId = String(orderId || '').trim();
+    if (!targetOrderId) return;
+
+    // Check if this order has an alternative ID / orderNumber
+    let altOrderId: string | null = null;
+    const targetOrder = this.orders.get(targetOrderId);
+    if (targetOrder) {
+      altOrderId = targetOrder.orderNumber && targetOrder.orderNumber !== targetOrderId ? targetOrder.orderNumber : null;
+    } else {
+      const found = Array.from(this.orders.values()).find(o => o.orderNumber === targetOrderId || o.id === targetOrderId);
+      if (found) {
+        altOrderId = found.id === targetOrderId ? found.orderNumber : found.id;
+      }
+    }
+
+    Array.from(this.messagesMap.values())
+      .filter(m => {
+        const mOrderId = String(m.orderId || '').trim();
+        const isOrderMatch = mOrderId === targetOrderId || (altOrderId && mOrderId === altOrderId);
+        const isOtherSender = m.senderType !== readerType;
+        return isOrderMatch && isOtherSender && !m.isRead;
+      })
+      .forEach(m => {
+        this.messagesMap.set(m.id, { ...m, isRead: true, isDelivered: true });
+      });
   }
 
   // Search methods

@@ -318,7 +318,9 @@ router.post('/send-otp', async (req, res) => {
 
     res.json({
       success: true,
-      message: waResult?.deliveryMethod === 'meta_cloud_api'
+      message: waResult?.deliveryMethod === 'whatsapp_bot'
+        ? `تم إرسال رمز التحقق إلى حسابك في الواتساب عبر بوت السيرفر بنجاح`
+        : waResult?.deliveryMethod === 'meta_cloud_api'
         ? `تم إرسال رمز التحقق إلى حسابك في الواتساب عبر Meta Cloud API بنجاح`
         : `تم تجهيز رمز التحقق للرقم ${phone}`,
       phone,

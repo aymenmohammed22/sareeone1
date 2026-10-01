@@ -1,10 +1,8 @@
 import postgres from "postgres";
+import { isOutsideRenderWithInternalUrl } from "./db";
 
 function getSslOption(url: string) {
   if (!url) return undefined;
-  if (url.includes("sslmode=disable") || url.includes("ssl=false")) {
-    return false;
-  }
   const isCloudProvider = url.includes("render.com") || url.includes("dpg-") || url.includes("neon.tech") || url.includes("supabase") || url.includes("aws");
   const hasSslMode = url.includes("sslmode=") || url.includes("ssl=");
   if (isCloudProvider || hasSslMode || process.env.NODE_ENV === "production" || process.env.DB_SSL === "true") {
@@ -20,12 +18,17 @@ export async function ensureTablesExist() {
     return;
   }
 
+  if (isOutsideRenderWithInternalUrl(databaseUrl)) {
+    console.warn("ℹ️ Skipping auto-migrate: DATABASE_URL is a Render Internal URL running outside Render. Tables will auto-migrate when deployed on Render.");
+    return;
+  }
+
   console.log("🛠️ Checking and ensuring database tables exist...");
   const ssl = getSslOption(databaseUrl);
   let sql: any;
   try {
     sql = postgres(databaseUrl, {
-      ssl: ssl !== undefined ? ssl : { rejectUnauthorized: false },
+      ssl: ssl || { rejectUnauthorized: false },
       max: 1,
       connect_timeout: 5,
       idle_timeout: 5,
@@ -36,13 +39,14 @@ export async function ensureTablesExist() {
   }
 
   try {
+    // Quick probe to see if DB is reachable
     await Promise.race([
       sql`SELECT 1`,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection probe timeout")), 4000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
     ]);
   } catch (probeErr: any) {
-    console.warn("⚠️ Database not reachable during auto-migration check, skipping tables creation:", probeErr?.message || probeErr);
-    try { await sql.end(); } catch (_) {}
+    console.warn("⚠️ Database not reachable during auto-migration check, skipping tables creation:", probeErr.message);
+    await sql.end();
     return;
   }
 
@@ -294,7 +298,21 @@ export async function ensureTablesExist() {
         message TEXT NOT NULL,
         recipient_type VARCHAR(50) NOT NULL,
         recipient_id TEXT,
+        recipient_name TEXT,
+        allow_replies BOOLEAN DEFAULT true NOT NULL,
         order_id UUID,
+        is_read BOOLEAN DEFAULT false NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS notification_replies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        notification_id UUID NOT NULL,
+        sender_type VARCHAR(50) NOT NULL,
+        sender_id TEXT,
+        sender_name VARCHAR(100),
+        sender_phone VARCHAR(50),
+        message TEXT NOT NULL,
         is_read BOOLEAN DEFAULT false NOT NULL,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       );
@@ -702,24 +720,25 @@ export async function ensureTablesExist() {
 
       CREATE TABLE IF NOT EXISTS messages (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        order_id UUID REFERENCES orders(id),
+        order_id TEXT,
         sender_id VARCHAR(100) NOT NULL,
         sender_type VARCHAR(50) NOT NULL,
-        recipient_id VARCHAR(100) NOT NULL,
-        recipient_type VARCHAR(50) NOT NULL,
+        receiver_id VARCHAR(100) NOT NULL,
+        receiver_type VARCHAR(50) NOT NULL,
         content TEXT NOT NULL,
+        is_delivered BOOLEAN DEFAULT false NOT NULL,
         is_read BOOLEAN DEFAULT false NOT NULL,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS audit_logs (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID,
-        user_type VARCHAR(50) NOT NULL,
+        admin_id UUID,
         action VARCHAR(100) NOT NULL,
         entity_type VARCHAR(50) NOT NULL,
         entity_id UUID,
-        details_json TEXT,
+        old_data TEXT,
+        new_data TEXT,
         ip_address VARCHAR(50),
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       );
@@ -853,6 +872,22 @@ export async function ensureTablesExist() {
         ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE admin_users ALTER COLUMN email DROP NOT NULL;
 
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS working_days VARCHAR(50) DEFAULT '0,1,2,3,4,5,6';
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_temporarily_closed BOOLEAN DEFAULT false;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS temporary_close_reason TEXT;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS opening_time VARCHAR(50) DEFAULT '08:00';
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS closing_time VARCHAR(50) DEFAULT '23:00';
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8);
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS address TEXT;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT false;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_new BOOLEAN DEFAULT false;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS commission_rate DECIMAL(5, 2) DEFAULT 0;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS delivery_fee DECIMAL(10, 2) DEFAULT 0;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS per_km_fee DECIMAL(10, 2) DEFAULT 0;
+        ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS minimum_order DECIMAL(10, 2) DEFAULT 0;
+
         ALTER TABLE delivery_fee_settings ADD COLUMN IF NOT EXISTS restaurant_id UUID REFERENCES restaurants(id);
         ALTER TABLE delivery_fee_settings ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'per_km';
         ALTER TABLE delivery_fee_settings ADD COLUMN IF NOT EXISTS base_fee DECIMAL(10, 2) DEFAULT 0;
@@ -893,6 +928,52 @@ export async function ensureTablesExist() {
         ALTER TABLE coupons ADD COLUMN IF NOT EXISTS end_date TIMESTAMP;
         ALTER TABLE coupons ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
         ALTER TABLE coupons ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+
+        ALTER TABLE notifications ADD COLUMN IF NOT EXISTS allow_replies BOOLEAN DEFAULT true;
+        ALTER TABLE notifications ADD COLUMN IF NOT EXISTS recipient_name TEXT;
+
+        -- Messages table updates & sync
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS order_id TEXT;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS receiver_id VARCHAR(100);
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS receiver_type VARCHAR(50);
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_id VARCHAR(100);
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_type VARCHAR(50);
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS content TEXT;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_delivered BOOLEAN DEFAULT false;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+
+        -- Drivers table updates & sync
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS can_view_profile BOOLEAN DEFAULT true;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS allow_profile_edit BOOLEAN DEFAULT true;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS can_view_wallet BOOLEAN DEFAULT true;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS can_view_stats BOOLEAN DEFAULT true;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS can_toggle_availability BOOLEAN DEFAULT true;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS allow_vehicle_edit BOOLEAN DEFAULT true;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS join_date TIMESTAMP DEFAULT NOW();
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS average_rating DECIMAL(3, 2) DEFAULT 0.00;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0;
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) DEFAULT 'commission';
+        ALTER TABLE drivers ADD COLUMN IF NOT EXISTS salary_amount DECIMAL(10, 2) DEFAULT 0;
+
+        -- Audit logs table updates & sync
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS admin_id UUID;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS old_data TEXT;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS new_data TEXT;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(50);
+
+        CREATE TABLE IF NOT EXISTS notification_replies (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          notification_id UUID NOT NULL,
+          sender_type VARCHAR(50) NOT NULL,
+          sender_id TEXT,
+          sender_name VARCHAR(100),
+          sender_phone VARCHAR(50),
+          message TEXT NOT NULL,
+          is_read BOOLEAN DEFAULT false NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        );
       `);
     } catch (columnErr: any) {
       console.warn("⚠️ Warning ensuring additional columns:", columnErr?.message || columnErr);
@@ -906,6 +987,11 @@ export async function ensureTablesExist() {
         CREATE INDEX IF NOT EXISTS idx_orders_restaurant_id ON orders(restaurant_id);
         CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
         CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_type, recipient_id);
+        CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+        CREATE INDEX IF NOT EXISTS idx_notification_replies_notif_id ON notification_replies(notification_id);
+        CREATE INDEX IF NOT EXISTS idx_notification_replies_created ON notification_replies(created_at DESC);
 
         CREATE INDEX IF NOT EXISTS idx_menu_items_restaurant_id ON menu_items(restaurant_id);
         CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(category);

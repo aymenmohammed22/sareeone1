@@ -843,11 +843,16 @@ export function registerAdvancedRoutes(app: express.Express) {
                  })
                });
 
+               const resData: any = await waRes.json().catch(() => ({}));
                if (waRes.ok) {
                  successCount++;
                } else {
                  failCount++;
-                 console.error("WhatsApp API Error:", await waRes.text());
+                 if (resData?.error?.code === 190) {
+                   console.info("WhatsApp API Token expired (OAuthException 190).");
+                 } else {
+                   console.error("WhatsApp API Error:", JSON.stringify(resData));
+                 }
                }
             } catch (err) {
                failCount++;

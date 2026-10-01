@@ -1,5 +1,9 @@
-import { dbStorage } from './db';
+import { dbStorage, isOutsideRenderWithInternalUrl } from './db';
 import { storage } from './storage';
+
+function isInternalRenderUrl(): boolean {
+  return isOutsideRenderWithInternalUrl();
+}
 
 // القائمة الكاملة للإعدادات الافتراضية - يتم التحقق منها وإضافتها عند كل تشغيل
 const defaultUiSettings = [
@@ -105,6 +109,7 @@ const defaultUiSettings = [
 
 // ضمان وجود الإعدادات الافتراضية في قاعدة البيانات (لكل تشغيل)
 export async function ensureDefaultSettings() {
+  if (isInternalRenderUrl()) return;
   try {
     const existing = await storage.getUiSettings();
     const existingKeys = new Set(existing.map(s => s.key));
@@ -124,6 +129,7 @@ export async function ensureDefaultSettings() {
 }
 
 export async function ensureAdminUsers() {
+  if (isInternalRenderUrl()) return;
   try {
     const adminAccounts = [
       {
@@ -181,6 +187,10 @@ export async function ensureAdminUsers() {
 }
 
 export async function seedDefaultData() {
+  if (isInternalRenderUrl()) {
+    console.warn("⚠️ Skipping database seeding: DATABASE_URL is a Render Internal URL (dpg-...). Using memory storage.");
+    return;
+  }
   try {
     console.log('🌱 Starting database seeding...');
 
@@ -215,8 +225,8 @@ export async function seedDefaultData() {
         description: "أجود أنواع الفواكه والخضروات الطازجة يومياً",
         image: "https://images.unsplash.com/photo-1542838132-92c53300491e?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=400",
         phone: "+967777777777",
-        rating: "5.0",
-        reviewCount: 1500,
+        rating: "4.8",
+        reviewCount: 4,
         deliveryTime: "20-40 دقيقة",
         isOpen: true,
         minimumOrder: "10",
@@ -238,8 +248,8 @@ export async function seedDefaultData() {
         description: "أفضل الحلويات الشامية والعربية",
         image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=400",
         phone: "+967779876543",
-        rating: "4.6",
-        reviewCount: 2341,
+        rating: "4.7",
+        reviewCount: 3,
         deliveryTime: "30-45 دقيقة",
         isOpen: true,
         minimumOrder: "15",
@@ -261,8 +271,8 @@ export async function seedDefaultData() {
         description: "مقهى شعبي بالطابع العربي الأصيل",
         image: "https://images.unsplash.com/photo-1442512595331-e89e73853f31?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=400",
         phone: "+967771111111",
-        rating: "4.5",
-        reviewCount: 1876,
+        rating: "4.3",
+        reviewCount: 3,
         deliveryTime: "يفتح في 8:00 ص",
         isOpen: true,
         minimumOrder: "20",
@@ -288,6 +298,96 @@ export async function seedDefaultData() {
       seededRestaurants.push(restaurant);
       console.log(`  ✓ Created restaurant: ${restaurant.name}`);
     }
+
+    // Seed genuine customer reviews for restaurants
+    console.log('⭐ Seeding customer ratings...');
+    const initialReviews = [
+      {
+        restaurantId: seededRestaurants[0].id,
+        customerName: "محمد اليافعي",
+        customerPhone: "777111222",
+        rating: 5,
+        comment: "أفضل خدمة وتوصيل سريع جداً، الأكل ساخن ولذيذ!",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[0].id,
+        customerName: "سارة أحمد",
+        customerPhone: "777333444",
+        rating: 5,
+        comment: "العربكة ممتازة جداً ونظافة وترتيب عالي المستوى.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[0].id,
+        customerName: "عبدالله الشميري",
+        customerPhone: "777555666",
+        rating: 5,
+        comment: "تجربة رائعة وأسعار مناسبة وسرعة استجابة من المتجر.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[0].id,
+        customerName: "خالد الصبري",
+        customerPhone: "777777888",
+        rating: 4,
+        comment: "ممتاز جداً والوجبة لذيذة وسريعة.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[1].id,
+        customerName: "أمير المعمري",
+        customerPhone: "771234560",
+        rating: 5,
+        comment: "حلويات شامية أصلية وطازجة ومميزة جداً.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[1].id,
+        customerName: "فاطمة النهمي",
+        customerPhone: "771234561",
+        rating: 5,
+        comment: "الكنافة والبقلاوة روعة، شكراً لتطبيق السريع ون.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[1].id,
+        customerName: "هشام الذبحاني",
+        customerPhone: "771234562",
+        rating: 4,
+        comment: "طعم رائع وتغليف ممتاز.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[2].id,
+        customerName: "بسام الأكوع",
+        customerPhone: "772223344",
+        rating: 5,
+        comment: "قهوة مميزة وشاي عدني أصيل.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[2].id,
+        customerName: "أيوب الحداد",
+        customerPhone: "773334455",
+        rating: 4,
+        comment: "جلسة رايقة ومشروبات ممتازة.",
+        isApproved: true,
+      },
+      {
+        restaurantId: seededRestaurants[2].id,
+        customerName: "يحيى الكبسي",
+        customerPhone: "774445566",
+        rating: 4,
+        comment: "خدمة جيدة وسريعة.",
+        isApproved: true,
+      }
+    ];
+
+    for (const rev of initialReviews) {
+      await dbStorage.createRating(rev as any);
+    }
+    console.log(`  ✓ Seeded ${initialReviews.length} customer ratings`);
 
     // Seed menu items
     const menuItems = [

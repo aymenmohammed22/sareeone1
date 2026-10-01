@@ -37,9 +37,6 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(viteServer.middlewares);
-  app.use("/api/*", (req: any, res: any) => {
-    res.status(404).json({ error: "API endpoint not found", path: req.originalUrl });
-  });
   app.use("*", async (req: any, res: any, next: any) => {
     const url = req.originalUrl;
     try {
@@ -102,11 +99,6 @@ export function serveStatic(app: Express) {
       }
     }
   }));
-
-  // منع إرجاع index.html لأي مسار API غير موجود
-  app.use("/api/*", (req, res) => {
-    res.status(404).json({ error: "API endpoint not found", path: req.originalUrl });
-  });
 
   // كل الطلبات الأخرى تُرجع index.html (SPA routing)
   app.use("*", (_req, res) => {

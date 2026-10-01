@@ -159,7 +159,7 @@ router.get("/restaurants/:id/sections", async (req, res) => {
 router.post("/restaurants/:id/rate", async (req, res) => {
   try {
     const { id } = req.params;
-    const { rating, comment, customerName } = req.body;
+    const { rating, comment, customerName, customerPhone } = req.body;
 
     if (!rating || rating < 1 || rating > 5) {
       return res.status(400).json({ message: "التقييم يجب أن يكون بين 1 و 5" });
@@ -172,17 +172,50 @@ router.post("/restaurants/:id/rate", async (req, res) => {
 
     const ratingData = {
       restaurantId: id,
-      customerName: customerName || "زائر",
+      customerName: customerName || "عميل",
+      customerPhone: customerPhone || null,
       rating: Number(rating),
       comment: comment || null,
-      isApproved: false,
+      isApproved: true,
     };
 
     const newRating = await storage.createRating(ratingData as any);
-    res.status(201).json({ success: true, rating: newRating });
+    const updatedRestaurant = await storage.getRestaurant(id);
+
+    res.status(201).json({ 
+      success: true, 
+      rating: newRating,
+      restaurantRating: updatedRestaurant?.rating,
+      reviewCount: updatedRestaurant?.reviewCount
+    });
   } catch (error) {
     console.error("خطأ في إرسال التقييم:", error);
     res.status(500).json({ message: "فشل في إرسال التقييم" });
+  }
+});
+
+// جلب تقييمات مطعم محدد
+router.get("/restaurants/:id/ratings", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allRatings = await storage.getRatings(undefined, id);
+    const approved = allRatings.filter(r => r.isApproved !== false);
+    approved.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const count = approved.length;
+    const avg = count > 0 
+      ? (approved.reduce((sum, r) => sum + (Number(r.rating) || 0), 0) / count).toFixed(1)
+      : "5.0";
+
+    res.json({
+      restaurantId: id,
+      averageRating: avg,
+      reviewCount: count,
+      ratings: approved
+    });
+  } catch (error) {
+    console.error("خطأ في جلب تقييمات المطعم:", error);
+    res.status(500).json({ error: "فشل في جلب التقييمات" });
   }
 });
 
@@ -465,9 +498,35 @@ router.get("/verify-app-key", async (req, res) => {
     const driverKey = driverSetting?.value;
 
     if (apiKey === customerKey) {
-      return res.json({ valid: true, appType: 'customer', message: "مفتاح تطبيق العميل صالح" });
+      return res.json({ 
+        valid: true, 
+        appType: 'customer', 
+        message: "مفتاح تطبيق العميل صالح ونشط 100%",
+        provider: "self-contained-server",
+        independentFromGoogleFirebase: true,
+        permissions: {
+          location: true,
+          whatsapp: true,
+          phone: true,
+          camera: true,
+          notifications: true
+        }
+      });
     } else if (apiKey === driverKey) {
-      return res.json({ valid: true, appType: 'driver', message: "مفتاح تطبيق السائق صالح" });
+      return res.json({ 
+        valid: true, 
+        appType: 'driver', 
+        message: "مفتاح تطبيق السائق صالح ونشط 100%",
+        provider: "self-contained-server",
+        independentFromGoogleFirebase: true,
+        permissions: {
+          location: true,
+          whatsapp: true,
+          phone: true,
+          camera: true,
+          notifications: true
+        }
+      });
     } else {
       return res.status(403).json({ valid: false, message: "مفتاح API غير صحيح أو ملغى" });
     }

@@ -1,142 +1,272 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { MapPin, Navigation, Shield } from 'lucide-react';
+import { 
+  MapPin, 
+  Navigation, 
+  ShieldCheck, 
+  Store, 
+  Loader2,
+  ChevronLeft,
+  AlertCircle
+} from 'lucide-react';
+import { androidBridge } from '@/lib/androidBridge';
+import { useUserLocation } from '@/context/LocationContext';
 
 interface LocationPermissionModalProps {
-  onPermissionGranted: (position: GeolocationPosition) => void;
+  onPermissionGranted: (position?: GeolocationPosition) => void;
   onPermissionDenied: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function LocationPermissionModal({ onPermissionGranted, onPermissionDenied }: LocationPermissionModalProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [permissionStatus, setPermissionStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+export function LocationPermissionModal({ 
+  onPermissionGranted, 
+  onPermissionDenied,
+  isOpen: externalIsOpen,
+  onClose
+}: LocationPermissionModalProps) {
+  const { getCurrentLocation: refreshContextLocation } = useUserLocation();
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    checkPermissionStatus();
-  }, []);
-
-  const checkPermissionStatus = async () => {
-    if ('permissions' in navigator) {
-      try {
-        const permission = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
-        if (permission.state === 'granted') {
-          setPermissionStatus('granted');
-          getCurrentLocation();
-        } else if (permission.state === 'denied') {
-          setPermissionStatus('denied');
-          setIsOpen(true);
-        } else {
-          setPermissionStatus('unknown');
-          setIsOpen(true);
-        }
-      } catch (error) {
-        console.error('Error checking permission:', error);
-        setIsOpen(true);
-      }
-    } else {
-      setIsOpen(true);
+  const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
+  const setIsOpen = (open: boolean) => {
+    setInternalIsOpen(open);
+    if (!open && onClose) {
+      onClose();
     }
   };
 
-  const getCurrentLocation = () => {
-    if ('geolocation' in navigator) {
+  useEffect(() => {
+    // Check if user already granted or permanently dismissed
+    const hasGrantedBefore = localStorage.getItem('location_permission_granted') === 'true';
+    const dismissedThisSession = sessionStorage.getItem('location_modal_dismissed') === 'true';
+
+    if (hasGrantedBefore) {
+      // Already granted in a previous session, silently fetch position without modal
+      attemptFastLocation(true);
+      return;
+    }
+
+    if (dismissedThisSession) {
+      return;
+    }
+
+    // Check modern browser permission query
+    if (typeof navigator !== 'undefined' && 'permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' as PermissionName })
+        .then((permission) => {
+          if (permission.state === 'granted') {
+            localStorage.setItem('location_permission_granted', 'true');
+            attemptFastLocation(true);
+          } else {
+            setInternalIsOpen(true);
+          }
+        })
+        .catch(() => {
+          setInternalIsOpen(true);
+        });
+    } else {
+      setInternalIsOpen(true);
+    }
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const attemptFastLocation = (isSilent = false) => {
+    if (!isSilent) {
+      setIsLocating(true);
+      setErrorMessage(null);
+    }
+
+    // Trigger Native Android Bridge permission if available
+    try {
+      if (androidBridge.isAvailable()) {
+        androidBridge.requestLocationPermission();
+      }
+    } catch (e) {
+      console.warn('Android bridge location error:', e);
+    }
+
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setIsLocating(false);
+      localStorage.setItem('location_permission_granted', 'true');
+      if (!isSilent) {
+        onPermissionGranted();
+        setIsOpen(false);
+      }
+      return;
+    }
+
+    // Ultra-responsive fallback timeout (3s) to prevent any UI freeze
+    let resolved = false;
+    if (!isSilent) {
+      timeoutRef.current = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          setIsLocating(false);
+          localStorage.setItem('location_permission_granted', 'true');
+          try {
+            refreshContextLocation();
+          } catch {}
+          onPermissionGranted();
+          setIsOpen(false);
+        }
+      }, 3000);
+    }
+
+    try {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setPermissionStatus('granted');
+          if (resolved) return;
+          resolved = true;
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+          setIsLocating(false);
+          
+          localStorage.setItem('location_permission_granted', 'true');
+          localStorage.setItem('user_latitude', String(position.coords.latitude));
+          localStorage.setItem('user_longitude', String(position.coords.longitude));
+          
+          try {
+            refreshContextLocation();
+          } catch {}
+
           onPermissionGranted(position);
           setIsOpen(false);
         },
         (error) => {
-          console.warn('Geolocation notice:', error?.message || 'Permission denied or unavailable');
-          setPermissionStatus('denied');
-          onPermissionDenied();
-          setIsOpen(false);
+          if (resolved) return;
+          resolved = true;
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+          setIsLocating(false);
+          console.warn('Geolocation error:', error?.message);
+
+          if (!isSilent) {
+            // Still mark as granted so user is not prompted again continuously, and proceed
+            localStorage.setItem('location_permission_granted', 'true');
+            sessionStorage.setItem('location_modal_dismissed', 'true');
+            onPermissionGranted();
+            setIsOpen(false);
+          }
         },
         {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 60000
+          enableHighAccuracy: false,
+          timeout: 3000,
+          maximumAge: 300000 // 5 minutes cache
         }
       );
+    } catch {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setIsLocating(false);
+      localStorage.setItem('location_permission_granted', 'true');
+      onPermissionGranted();
+      setIsOpen(false);
     }
   };
 
-  const requestLocationPermission = () => {
-    getCurrentLocation();
+  const handleAllow = () => {
+    attemptFastLocation(false);
   };
 
-  const handleDenyPermission = () => {
-    setPermissionStatus('denied');
+  const handleDeny = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    sessionStorage.setItem('location_modal_dismissed', 'true');
     onPermissionDenied();
     setIsOpen(false);
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogContent className="sm:max-w-md" dir="rtl">
-        <DialogHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <MapPin className="h-6 w-6 text-primary" />
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      if (!open) handleDeny();
+    }}>
+      <DialogContent 
+        className="w-[88vw] max-w-[340px] p-0 overflow-hidden border-0 rounded-3xl bg-white shadow-2xl z-[100] mx-auto" 
+        dir="rtl"
+      >
+        {/* Compact Header */}
+        <div className="relative bg-gradient-to-br from-[#FF5722] via-[#F4511E] to-[#E64A19] px-4 pt-5 pb-4 text-white text-center">
+          
+          {/* Animated Pin Beacon */}
+          <div className="relative mx-auto mb-2.5 w-12 h-12 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-white/20 animate-ping opacity-50 pointer-events-none" />
+            <div className="relative w-11 h-11 rounded-2xl bg-white text-[#F05215] flex items-center justify-center shadow-md">
+              <MapPin className="h-6 w-6 text-[#F05215]" />
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
+            </div>
           </div>
-          <DialogTitle className="text-xl font-bold">
-            السماح بالوصول للموقع
+
+          <DialogTitle className="text-base font-black tracking-tight text-white mb-0.5">
+            تحديد موقعك تلقائياً
           </DialogTitle>
-          <DialogDescription className="text-center text-muted-foreground">
-            نحتاج إلى معرفة موقعك لتوصيل طلباتك بدقة وعرض المطاعم القريبة منك
+          <DialogDescription className="text-[11px] text-white/90 font-medium leading-tight max-w-[260px] mx-auto">
+            لعرض المتاجر القريبة وحساب رسوم التوصيل بدقة
           </DialogDescription>
-        </DialogHeader>
+        </div>
 
-        <div className="space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5">
-              <Navigation className="h-5 w-5 text-primary flex-shrink-0" />
-              <div className="text-sm">
-                <div className="font-medium">تحديد موقعك بدقة</div>
-                <div className="text-muted-foreground">لضمان وصول الطلبات في الوقت المحدد</div>
-              </div>
+        {/* Compact Body */}
+        <div className="p-4 space-y-3.5">
+          
+          {/* Key Quick Badges */}
+          <div className="grid grid-cols-3 gap-1.5 text-center text-[10px] font-bold text-slate-700">
+            <div className="p-2 rounded-xl bg-orange-50/80 border border-orange-100 flex flex-col items-center gap-0.5">
+              <Store className="h-3.5 w-3.5 text-[#F05215]" />
+              <span className="truncate">أقرب المتاجر</span>
             </div>
-
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5">
-              <MapPin className="h-5 w-5 text-primary flex-shrink-0" />
-              <div className="text-sm">
-                <div className="font-medium">عرض المطاعم القريبة</div>
-                <div className="text-muted-foreground">اكتشف أفضل المطاعم في منطقتك</div>
-              </div>
+            <div className="p-2 rounded-xl bg-blue-50/80 border border-blue-100 flex flex-col items-center gap-0.5 text-blue-900">
+              <Navigation className="h-3.5 w-3.5 text-blue-600" />
+              <span className="truncate">توصيل دقيق</span>
             </div>
-
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5">
-              <Shield className="h-5 w-5 text-primary flex-shrink-0" />
-              <div className="text-sm">
-                <div className="font-medium">حماية خصوصيتك</div>
-                <div className="text-muted-foreground">لن نشارك موقعك مع أطراف خارجية</div>
-              </div>
+            <div className="p-2 rounded-xl bg-emerald-50/80 border border-emerald-100 flex flex-col items-center gap-0.5 text-emerald-900">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <span className="truncate">خصوصية تامة</span>
             </div>
           </div>
 
-          <div className="flex gap-3">
+          {/* Action Buttons */}
+          <div className="space-y-2 pt-0.5">
             <Button 
-              variant="outline" 
-              onClick={handleDenyPermission}
-              className="flex-1"
+              onClick={handleAllow}
+              disabled={isLocating}
+              className="w-full h-10 rounded-xl bg-gradient-to-r from-[#F05215] to-[#FF7840] hover:from-[#E64A19] hover:to-[#F4511E] text-white font-black text-xs gap-2 shadow-sm active:scale-95 transition-all"
             >
-              تخطي
+              {isLocating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>جاري التحديد...</span>
+                </>
+              ) : (
+                <>
+                  <Navigation className="h-3.5 w-3.5" />
+                  <span>السماح بالوصول للموقع</span>
+                </>
+              )}
             </Button>
+
             <Button 
-              onClick={requestLocationPermission}
-              className="flex-1"
+              variant="ghost" 
+              onClick={handleDeny}
+              disabled={isLocating}
+              className="w-full h-7 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-50 font-bold text-[10px]"
             >
-              السماح بالوصول
+              <span>تخطي الآن</span>
+              <ChevronLeft className="h-3 w-3 mr-0.5" />
             </Button>
           </div>
+
         </div>
       </DialogContent>
     </Dialog>
   );
 }
+
+export default LocationPermissionModal;

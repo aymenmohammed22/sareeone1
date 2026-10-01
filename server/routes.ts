@@ -7,7 +7,8 @@ import fs from "fs";
 import { storage } from "./storage";
 import { dbStorage } from "./db";
 import { log } from "./viteServer";
-import { broadcastSettingsChanged } from "./broadcast";
+import { broadcastSettingsChanged, broadcastEvent } from "./broadcast";
+import { scoreArabicMatch, matchesArabic, normalizeArabic } from "./utils/arabic-search";
 import authRoutes from "./routes/auth";
 import { customerRoutes } from "./routes/customer";
 import driverRoutes from "./routes/driver";
@@ -19,6 +20,8 @@ import { publicRoutes } from "./routes/public";
 import restaurantAccountsRouter from "./routes/restaurant-accounts";
 import flutterRouter from "./routes/flutter";
 import wasalniRouter from "./routes/wasalni";
+import messagesRouter from "./routes/messages";
+import geocodeRouter from "./routes/geocode";
 import imageUploadRouter from "./imageUpload";
 import { ensureUploadsDir, UPLOADS_DIR } from "./localStorage";
 
@@ -104,6 +107,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin and Advanced Routes
   app.use("/api/admin", adminRoutes);
+  app.use("/api/messages", messagesRouter);
+  app.use("/api/geocode", geocodeRouter);
   app.use(["/api/restaurant-accounts", "/api/admin/restaurant-accounts"], restaurantAccountsRouter);
   registerAdvancedRoutes(app);
 
@@ -462,10 +467,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/ratings", async (req, res) => {
     try {
       const rating = await storage.createRating(req.body);
+      broadcastEvent('rating_update', { action: 'create', restaurantId: rating?.restaurantId, rating });
+      broadcastEvent('restaurant_update', { action: 'rating_changed', id: rating?.restaurantId });
       res.status(201).json(rating);
     } catch (error) {
       console.error("Error creating rating:", error);
       res.status(500).json({ error: "فشل في إضافة التقييم" });
+    }
+  });
+
+  // Get ratings for a specific restaurant (approved customer reviews)
+  app.get("/api/restaurants/:id/ratings", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const allRatings = await storage.getRatings(undefined, id);
+      const approved = allRatings.filter((r: any) => r.isApproved !== false);
+      approved.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      const count = approved.length;
+      const avg = count > 0
+        ? (approved.reduce((sum: number, r: any) => sum + (Number(r.rating) || 0), 0) / count).toFixed(1)
+        : "5.0";
+
+      res.json({
+        restaurantId: id,
+        averageRating: avg,
+        reviewCount: count,
+        ratings: approved
+      });
+    } catch (error) {
+      console.error("Error fetching restaurant ratings:", error);
+      res.status(500).json({ error: "فشل في جلب تقييمات المطعم" });
+    }
+  });
+
+  // Direct rating submission for a restaurant
+  app.post("/api/restaurants/:id/rate", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { rating, comment, customerName, customerPhone } = req.body;
+
+      if (!rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "التقييم يجب أن يكون بين 1 و 5" });
+      }
+
+      const restaurant = await storage.getRestaurant(id);
+      if (!restaurant) {
+        return res.status(404).json({ message: "المطعم غير موجود" });
+      }
+
+      const ratingData = {
+        restaurantId: id,
+        customerName: customerName || "عميل",
+        customerPhone: customerPhone || null,
+        rating: Number(rating),
+        comment: comment || null,
+        isApproved: true,
+      };
+
+      const newRating = await storage.createRating(ratingData as any);
+      const updatedRestaurant = await storage.getRestaurant(id);
+
+      broadcastEvent('rating_update', { action: 'rate', restaurantId: id, rating: newRating });
+      broadcastEvent('restaurant_update', { action: 'rating_changed', id, restaurant: updatedRestaurant });
+
+      res.status(201).json({
+        success: true,
+        rating: newRating,
+        restaurantRating: updatedRestaurant?.rating,
+        reviewCount: updatedRestaurant?.reviewCount
+      });
+    } catch (error) {
+      console.error("Error submitting rating:", error);
+      res.status(500).json({ message: "فشل في إرسال التقييم" });
     }
   });
 
@@ -476,13 +550,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (type === 'driver') {
         const advancedDb = new (require('./db-advanced').AdvancedDatabaseStorage)((storage as any).db);
-        // Only update approval status if supported, if not just ignore or pretend it worked since the schema doesn't have isApproved
-        // Actually, looking at driverReviews schema, we might not have isApproved. Let's just return success for now if it's not present, or if it is present, update it.
         return res.json({ success: true, message: 'Driver review approval ignored' });
       }
 
       const updated = await storage.updateRating(req.params.id, { isApproved });
       if (!updated) return res.status(404).json({ error: "التقييم غير موجود" });
+
+      broadcastEvent('rating_update', { action: 'approve', id: req.params.id, isApproved, rating: updated });
+      if (updated.restaurantId) {
+        const updatedRest = await storage.getRestaurant(updated.restaurantId);
+        broadcastEvent('restaurant_update', { action: 'rating_changed', id: updated.restaurantId, restaurant: updatedRest });
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error approving rating:", error);
@@ -495,10 +574,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.query.type === 'driver') {
         const advancedDb = new (require('./db-advanced').AdvancedDatabaseStorage)((storage as any).db);
         await advancedDb.db.delete(require('@shared/schema').driverReviews).where(require('drizzle-orm').eq(require('@shared/schema').driverReviews.id, req.params.id));
+        broadcastEvent('rating_update', { action: 'delete', id: req.params.id, type: 'driver' });
         return res.json({ success: true });
       }
 
+      const existingRating = await storage.getRating(req.params.id);
       const success = await storage.deleteRating(req.params.id);
+      
+      broadcastEvent('rating_update', { action: 'delete', id: req.params.id });
+      if (existingRating?.restaurantId) {
+        const updatedRest = await storage.getRestaurant(existingRating.restaurantId);
+        broadcastEvent('restaurant_update', { action: 'rating_changed', id: existingRating.restaurantId, restaurant: updatedRest });
+      }
+
       res.json({ success });
     } catch (error) {
       console.error("Error deleting rating:", error);
@@ -884,9 +972,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         parsedItems = [];
       }
 
+      // Fetch driver details if driverId exists
+      let driverInfo: any = null;
+      if (orderData.driverId) {
+        try {
+          driverInfo = await storage.getDriver(orderData.driverId);
+        } catch (e) {
+          console.error("Error fetching driver info for tracking:", e);
+        }
+      }
+
+      // Generate deterministic 4-digit verification PIN code (like in the video: 1 9 2 1)
+      const numericSeed = (orderData.orderNumber || orderData.id || "1921").replace(/\D/g, "");
+      const pinCode = numericSeed.length >= 4 
+        ? numericSeed.slice(-4) 
+        : ((numericSeed + "1921").slice(0, 4));
+
       res.json({
         order: {
           ...orderData,
+          driverName: driverInfo?.name || orderData.driverName || (orderData.driverId ? "سائق سريع ون" : undefined),
+          driverPhone: driverInfo?.phone || orderData.driverPhone || undefined,
+          driverRating: driverInfo?.averageRating ? String(driverInfo.averageRating) : "4.9",
+          driverVehiclePlate: driverInfo?.vehicleNumber || (orderData.driverId ? "أ س ن 8990" : undefined),
+          driverVehicleModel: driverInfo?.vehicleType || (orderData.driverId ? "Toyota Camry" : undefined),
+          driverLatitude: driverInfo?.latitude || undefined,
+          driverLongitude: driverInfo?.longitude || undefined,
+          deliveryPin: pinCode,
           items: parsedItems,
           total: parseFloat(orderData.total || '0')
         },
@@ -1114,7 +1226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Enhanced Search Routes - مسارات البحث المحسنة
+  // Enhanced Ultra-Fast Comprehensive Arabic Search Routes - مسارات البحث المحسنة والشاملة
   app.get("/api/search", async (req, res) => {
     try {
       const { 
@@ -1129,41 +1241,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type
       } = req.query;
       
-      if (!query) {
-        return res.status(400).json({ error: "Query parameter is required" });
+      const searchTerm = typeof query === 'string' ? query.trim() : '';
+      if (!searchTerm) {
+        return res.json({ restaurants: [], categories: [], menuItems: [], total: 0 });
       }
 
-      const userLocation = (lat && lon) ? { lat: parseFloat(lat as string), lon: parseFloat(lon as string) } : undefined;
-      
-      const results: any = {};
-      
-      if (!type || type === 'restaurants') {
-        const filters = {
-          search: query as string,
-          categoryId: category as string,
-          sortBy: sortBy as 'name' | 'rating' | 'deliveryTime' | 'distance' | 'newest',
-          isFeatured: isFeatured === 'true',
-          isNew: isNew === 'true',
-          userLatitude: userLocation?.lat,
-          userLongitude: userLocation?.lon,
-          radius: radius ? parseFloat(radius as string) : undefined
-        };
-        results.restaurants = await storage.getRestaurants(filters);
-      }
-      
-      if (!type || type === 'categories') {
-        results.categories = await storage.searchCategories(query as string);
-      }
-      
-      if (!type || type === 'menu-items') {
-        results.menuItems = await storage.searchMenuItemsAdvanced(query as string);
-      }
-      
-      const total = (results.restaurants?.length || 0) + 
-                   (results.categories?.length || 0) + 
-                   (results.menuItems?.length || 0);
+      // 1. Fetch base collections concurrently for maximum speed
+      const [allRestaurants, allCategories, allMenuItems] = await Promise.all([
+        storage.getRestaurants(),
+        storage.getCategories(),
+        storage.getAllMenuItems()
+      ]);
 
-      res.json({ ...results, total });
+      const restaurantMap = new Map<string, any>();
+      for (const r of allRestaurants) {
+        restaurantMap.set(r.id, r);
+      }
+
+      // 2. Search & Score Restaurants
+      let matchedRestaurants: any[] = [];
+      if (!type || type === 'restaurants' || type === 'all') {
+        const scoredRestaurants: { item: any; score: number }[] = [];
+        
+        for (const rest of allRestaurants) {
+          if (rest.isActive === false) continue;
+          if (category && rest.categoryId !== category) continue;
+          if (isFeatured === 'true' && !rest.isFeatured) continue;
+          if (isNew === 'true' && !rest.isNew) continue;
+
+          let score = 0;
+          score += scoreArabicMatch(rest.name, searchTerm) * 2.0;
+          score += scoreArabicMatch(rest.description, searchTerm) * 1.2;
+          score += scoreArabicMatch(rest.address, searchTerm) * 1.0;
+
+          // Also check if restaurant's category matches
+          const cat = allCategories.find((c: any) => c.id === rest.categoryId);
+          if (cat) {
+            score += scoreArabicMatch(cat.name, searchTerm) * 0.8;
+          }
+
+          if (score > 0) {
+            scoredRestaurants.push({ item: rest, score });
+          }
+        }
+
+        // Sort by relevance score descending
+        scoredRestaurants.sort((a, b) => b.score - a.score);
+        matchedRestaurants = scoredRestaurants.map(sr => sr.item);
+      }
+
+      // 3. Search & Score Menu Items (Meals, Products, Dishes)
+      let matchedMenuItems: any[] = [];
+      if (!type || type === 'menu-items' || type === 'all') {
+        const scoredItems: { item: any; score: number }[] = [];
+
+        for (const item of allMenuItems) {
+          if (item.isAvailable === false) continue;
+          const parentRest = item.restaurantId ? restaurantMap.get(item.restaurantId) : null;
+          if (parentRest && parentRest.isActive === false) continue;
+          if (category && parentRest && parentRest.categoryId !== category) continue;
+
+          let score = 0;
+          score += scoreArabicMatch(item.name, searchTerm) * 2.5; // High weight on product name
+          score += scoreArabicMatch(item.description, searchTerm) * 1.2;
+          score += scoreArabicMatch(item.category, searchTerm) * 1.0;
+          if (parentRest) {
+            score += scoreArabicMatch(parentRest.name, searchTerm) * 0.9;
+          }
+
+          if (score > 0) {
+            const enrichedItem = {
+              ...item,
+              restaurantName: parentRest?.name || 'متجر السريع ون',
+              restaurantImage: parentRest?.image || null,
+              restaurantRating: parentRest?.rating || '5.0',
+              restaurantDeliveryTime: parentRest?.deliveryTime || '30-45 دقيقة',
+              restaurantDeliveryFee: parentRest?.deliveryFee || '0',
+              restaurantIsOpen: parentRest ? parentRest.isOpen : true,
+            };
+            scoredItems.push({ item: enrichedItem, score });
+          }
+        }
+
+        scoredItems.sort((a, b) => b.score - a.score);
+        matchedMenuItems = scoredItems.map(si => si.item);
+      }
+
+      // 4. Search & Score Categories
+      let matchedCategories: any[] = [];
+      if (!type || type === 'categories' || type === 'all') {
+        const scoredCategories: { item: any; score: number }[] = [];
+
+        for (const cat of allCategories) {
+          if (cat.isActive === false) continue;
+          const score = scoreArabicMatch(cat.name, searchTerm);
+          if (score > 0) {
+            scoredCategories.push({ item: cat, score });
+          }
+        }
+
+        scoredCategories.sort((a, b) => b.score - a.score);
+        matchedCategories = scoredCategories.map(sc => sc.item);
+      }
+
+      const total = matchedRestaurants.length + matchedCategories.length + matchedMenuItems.length;
+
+      res.json({
+        restaurants: matchedRestaurants,
+        categories: matchedCategories,
+        menuItems: matchedMenuItems,
+        total
+      });
     } catch (error) {
       console.error("Search error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -1322,6 +1510,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register Wasalni (وصل لي) routes
   app.use("/api/wasalni", wasalniRouter);
 
+  // Register chat and messages routes
+  app.use("/api/messages", messagesRouter);
+
   // Register public routes (including Flutter API)
   app.use("/api", publicRoutes);
 
@@ -1341,18 +1532,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Customer notifications endpoint - by phone or customerId
+  // Customer notifications endpoint - by phone, customerId, or guest/all
   app.get("/api/notifications/customer", async (req, res) => {
     try {
       const { phone, customerId } = req.query;
-      if (!phone && !customerId) {
-        return res.status(400).json({ message: "phone or customerId required" });
-      }
-      // Get ALL customer notifications (both read and unread) - no unread filter
-      const allNotifs = await storage.getNotifications('customer');
-      const filtered = allNotifs.filter((n: any) => {
-        // إذا كان الإشعار موجه لجميع العملاء (recipientId هو null)
-        if (!n.recipientId || n.recipientId === 'all') return true;
+      
+      // Get all notifications across customer, all, and flutter types
+      const allCustomerNotifs = await storage.getNotifications('customer');
+      const allBroadcastNotifs = await storage.getNotifications('all');
+      const allFlutterNotifs = await storage.getNotifications('flutter');
+
+      const combined = [
+        ...allCustomerNotifs,
+        ...allBroadcastNotifs,
+        ...allFlutterNotifs
+      ];
+
+      // Remove duplicates by id
+      const uniqueMap = new Map();
+      combined.forEach((n: any) => {
+        if (!uniqueMap.has(n.id)) uniqueMap.set(n.id, n);
+      });
+      const uniqueNotifs = Array.from(uniqueMap.values());
+
+      const filtered = uniqueNotifs.filter((n: any) => {
+        // إذا كان الإشعار عام لجميع المستخدمين أو أجهزة التطبيق
+        if (n.recipientType === 'all' || n.recipientType === 'flutter') return true;
+
+        // إذا كان الإشعار موجه لجميع العملاء (recipientId هو null أو all)
+        if (n.recipientType === 'customer' && (!n.recipientId || n.recipientId === 'all')) return true;
         
         // إذا كان الإشعار موجه لعميل محدد
         if (customerId && n.recipientId === customerId) return true;
@@ -1360,11 +1568,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         return false;
       });
-      filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      res.json(filtered);
+
+      // جلب ردود الإشعارات لإرفاقها مع كل إشعار
+      const allReplies = await storage.getAllNotificationReplies().catch(() => []);
+      const repliesByNotif = new Map<string, any[]>();
+      allReplies.forEach((r: any) => {
+        const list = repliesByNotif.get(r.notificationId) || [];
+        list.push(r);
+        repliesByNotif.set(r.notificationId, list);
+      });
+
+      const enriched = filtered.map((n: any) => ({
+        ...n,
+        allowReplies: n.allowReplies !== false,
+        replies: repliesByNotif.get(n.id) || [],
+        replyCount: (repliesByNotif.get(n.id) || []).length,
+      }));
+
+      enriched.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(enriched);
     } catch (error) {
       console.error('Error fetching customer notifications:', error);
       res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  // Customer replies to a notification
+  app.post("/api/notifications/:id/reply", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { message, senderType = 'customer', senderId, senderName, senderPhone } = req.body;
+
+      if (!message || !message.trim()) {
+        return res.status(400).json({ message: "Message is required" });
+      }
+
+      const allNotifs = await storage.getNotifications();
+      const notif = allNotifs.find(n => n.id === id);
+
+      if (!notif) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+
+      if (notif.allowReplies === false) {
+        return res.status(403).json({ message: "Replies are disabled for this notification" });
+      }
+
+      const newReply = await storage.createNotificationReply({
+        notificationId: id,
+        senderType,
+        senderId: senderId || null,
+        senderName: senderName || 'عميل',
+        senderPhone: senderPhone || null,
+        message: message.trim(),
+        isRead: false,
+      });
+
+      res.json({ success: true, reply: newReply });
+    } catch (error) {
+      console.error("Error creating notification reply:", error);
+      res.status(500).json({ message: "Failed to post reply" });
+    }
+  });
+
+  // Get replies for a specific notification
+  app.get("/api/notifications/:id/replies", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const replies = await storage.getNotificationReplies(id);
+      res.json(replies);
+    } catch (error) {
+      console.error("Error fetching replies:", error);
+      res.status(500).json({ message: "Failed to fetch replies" });
     }
   });
 

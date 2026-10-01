@@ -41,8 +41,16 @@ import {
   RefreshCw,
   Volume2,
   VolumeX,
-  Zap
+  Zap,
+  ShieldAlert,
+  Sparkles,
+  Bot,
+  MessageCircle as MessageIcon,
+  Share2
 } from 'lucide-react';
+import ChatOverlay from '@/components/ChatOverlay';
+import AssistantMascotIcon from '@/components/AssistantMascotIcon';
+import ShareDriverAppModal from '@/components/ShareDriverAppModal';
 
 interface Order {
   id: string;
@@ -97,6 +105,8 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
   const [soundMuted, setSoundMuted] = useState(soundAlert.getMuted());
   const [currentLocation, setCurrentLocation] = useState<[number, number] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [adminChatOpen, setAdminChatOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   
   // Register with Android bridge if available
   useEffect(() => {
@@ -121,6 +131,21 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
   const getS = (key: string, defaultValue: string) => getSettingValue(key) || defaultValue;
 
   const driverToken = localStorage.getItem('driver_token');
+
+  // Unread chat messages query for driver (conversations with admin + active orders)
+  const { data: driverConversationsData } = useQuery({
+    queryKey: ['/api/messages/user-conversations', driverId, 'driver'],
+    queryFn: async () => {
+      if (!driverId) return { totalUnreadCount: 0 };
+      const res = await fetch(`/api/messages/user-conversations?userId=${encodeURIComponent(driverId)}&userType=driver`);
+      if (!res.ok) return { totalUnreadCount: 0 };
+      return res.json();
+    },
+    enabled: !!driverId,
+    refetchInterval: 4000,
+  });
+
+  const unreadChatCount = driverConversationsData?.totalUnreadCount || 0;
 
   // Driver WebSocket — connection dedicated to this driver (independent of customer WS_MANAGER)
   const activeTabRef = React.useRef(activeTab);
@@ -271,9 +296,9 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
         return undefined;
       }
     },
-    refetchInterval: 20000,
-    refetchIntervalInBackground: false,
-    staleTime: 5000,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    staleTime: 2000,
     placeholderData: (previousData) => previousData,
     enabled: !!driverToken
   });
@@ -282,7 +307,8 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
     availableOrders = [], 
     currentOrders = [], 
     stats = {} as DashboardStats,
-    driver = {} as any
+    driver = {} as any,
+    multiOrderEligibility = null
   } = dashboardData || {};
 
   // فلترة الطلبات المتاحة بدقة لاستبعاد أي طلب تم قبوله أو تعيينه لهذا السائق أو لسائق آخر
@@ -339,6 +365,14 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
   });
 
   const handleToggleStatus = () => {
+    if (!canToggleAvailability) {
+      toast({
+        title: 'عذراً',
+        description: 'ليس لديك صلاحية لتغيير حالة التوفر. يرجى التواصل مع الإدارة.',
+        variant: 'destructive'
+      });
+      return;
+    }
     const newStatus = driverStatus === 'available' ? 'offline' : 'available';
     toggleStatusMutation.mutate(newStatus);
   };
@@ -579,13 +613,14 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
     averageRating: 0,
   };
 
-  // Driver app UI settings visibility
-  const showWallet = getS('driver_show_wallet', 'true') !== 'false';
-  const showStats = getS('driver_show_stats', 'true') !== 'false';
-  const showProfile = getS('driver_show_profile', 'true') !== 'false';
+  // Driver app UI settings visibility - Merged with driver specific permissions
+  const showWallet = (getS('driver_show_wallet', 'true') !== 'false') && (driver.canViewWallet !== false);
+  const showStats = (getS('driver_show_stats', 'true') !== 'false') && (driver.canViewStats !== false);
+  const showProfile = (getS('driver_show_profile', 'true') !== 'false') && (driver.canViewProfile !== false);
   const showHistory = getS('driver_show_history', 'true') !== 'false';
+  const canToggleAvailability = driver.canToggleAvailability !== false;
 
-  // Nav Items - filtered by UI settings
+  // Nav Items - filtered by UI settings and permissions
   const navItems = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: Activity, visible: true },
     { id: 'available', label: 'الطلبات المتاحة', icon: Bell, visible: true },
@@ -637,11 +672,20 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
         </div>
       </nav>
 
-      <div className="p-4 border-t">
+      <div className="p-4 border-t space-y-2.5">
+        <Button
+          variant="outline"
+          onClick={() => { setIsShareModalOpen(true); setSidebarOpen(false); }}
+          className="w-full flex items-center justify-center gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100/90 border-emerald-200 font-bold text-xs h-10 rounded-xl transition-all shadow-xs"
+        >
+          <Share2 className="h-4 w-4 text-emerald-600" />
+          <span>مشاركة التطبيق مع السائقين</span>
+        </Button>
+
         <Button
           variant="outline"
           onClick={() => { onLogout(); setSidebarOpen(false); }}
-          className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 border-red-100"
+          className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 border-red-100 text-xs h-10 rounded-xl"
         >
           <span>تسجيل الخروج</span>
           <LogOut className="h-4 w-4" />
@@ -748,6 +792,40 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
               </div>
             )}
 
+            {/* Multi-Order Eligibility Alert Banner */}
+            {currentOrders.length > 0 && multiOrderEligibility && (
+              <div className={`rounded-2xl p-4 border shadow-md flex items-start gap-3 transition-all ${
+                multiOrderEligibility.allowed 
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                  : 'bg-amber-50 border-amber-300 text-amber-950'
+              }`}>
+                {multiOrderEligibility.allowed ? (
+                  <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 animate-pulse" />
+                ) : (
+                  <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 text-sm">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-bold flex items-center gap-1.5">
+                      {multiOrderEligibility.allowed ? '⚡ مسموح استلام طلبات إضافية' : '🔒 استلام أكثر من طلب مقيد حالياً'}
+                    </span>
+                    <Badge variant="outline" className={`text-xs ${
+                      multiOrderEligibility.allowed 
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                    }`}>
+                      {multiOrderEligibility.allowed ? 'ضغط طلبات' : 'توزيع عادل'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs opacity-90 leading-relaxed">
+                    {multiOrderEligibility.message || (multiOrderEligibility.allowed 
+                      ? 'جميع الكباتن مشغولون بطلبات جارية، مسموح لك باستلام طلب إضافي لتغطية ضغط التوصيل.'
+                      : 'لديك طلب نشط بالفعل، ولا يمكن استلام أكثر من طلب لوجود كباتن آخرين متاحين لتفادي تأخير التوصيل.')}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Stats Overview */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card className="border-none shadow-sm bg-blue-50">
@@ -775,6 +853,7 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
                 </CardContent>
               </Card>
             </div>
+
 
             {/* Current Orders Section */}
             {currentOrders.length > 0 && (
@@ -970,7 +1049,18 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
           <span className="font-bold text-lg">تطبيق السائق</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            title="مشاركة التطبيق مع السائقين"
+            className="flex items-center gap-1 px-2 sm:px-2.5 h-8 text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold transition-all"
+            onClick={() => setIsShareModalOpen(true)}
+          >
+            <Share2 className="h-4 w-4" />
+            <span className="hidden xs:inline sm:inline">مشاركة</span>
+          </Button>
+
           <Button
             variant="ghost"
             size="icon"
@@ -1020,7 +1110,18 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              title="مشاركة التطبيق مع السائقين"
+              className="gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 font-bold rounded-xl h-9"
+              onClick={() => setIsShareModalOpen(true)}
+            >
+              <Share2 className="h-4 w-4 text-emerald-600" />
+              <span>مشاركة التطبيق مع السائقين</span>
+            </Button>
+
             <Button
               variant="ghost"
               size="icon"
@@ -1179,6 +1280,40 @@ export default function EnhancedDriverDashboard({ driverId, onLogout }: Enhanced
           />
         );
       })()}
+
+      {/* Floating Chat Mascot Icon */}
+      <div className="fixed bottom-20 right-4 z-[2000] md:bottom-8 md:right-8 pointer-events-auto">
+        <button
+          onClick={() => setAdminChatOpen(true)}
+          className="group relative flex items-center justify-center p-0 bg-transparent border-0 outline-none hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer"
+          title="المحادثات والرسائل"
+        >
+          <div className="relative">
+            <AssistantMascotIcon className="w-14 h-14 md:w-16 md:h-16" />
+            
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-[#ff2200] text-white text-[10px] font-black rounded-full min-w-[20px] h-[20px] px-1 flex items-center justify-center border-2 border-white shadow-md animate-pulse">
+                {unreadChatCount > 9 ? '9+' : unreadChatCount}
+              </span>
+            )}
+          </div>
+        </button>
+      </div>
+
+      <ChatOverlay 
+        isOpen={adminChatOpen} 
+        onClose={() => setAdminChatOpen(false)} 
+        userType="driver"
+        userId={driverId}
+      />
+
+      {/* نافذة مشاركة التطبيق مع السائقين */}
+      <ShareDriverAppModal 
+        isOpen={isShareModalOpen} 
+        onClose={() => setIsShareModalOpen(false)} 
+        driverName={driver?.name || 'سائق'}
+        driverId={driverId}
+      />
     </div>
   );
 }
